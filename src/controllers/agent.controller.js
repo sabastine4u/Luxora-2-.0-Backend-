@@ -250,3 +250,107 @@ exports.updateAgentStatus = async (req, res, next) => {
     next(error);
   }
 };
+
+// PATCH /api/v1/agents/:id/commission
+// Updates the commission configuration for an Agent owned by the authenticated Agency.
+exports.updateAgentCommission = async (req, res, next) => {
+  try {
+    const {
+      commissionModel,
+      agentShare,
+      agencyShare,
+      signOnBonus,
+    } = req.body;
+
+    // Validate the commission split before saving it.
+    const agentPercentage = Number(agentShare);
+    const agencyPercentage = Number(agencyShare);
+
+    if (
+      !Number.isFinite(agentPercentage) ||
+      !Number.isFinite(agencyPercentage)
+    ) {
+      return next(
+        new AppError(
+          'agentShare and agencyShare must be valid numbers',
+          400
+        )
+      );
+    }
+
+    // Prevent invalid negative or over-100% commission values.
+    if (
+      agentPercentage < 0 ||
+      agencyPercentage < 0 ||
+      agentPercentage > 100 ||
+      agencyPercentage > 100
+    ) {
+      return next(
+        new AppError(
+          'Commission shares must be between 0 and 100',
+          400
+        )
+      );
+    }
+
+    // The Agent and Agency portions must always make up the entire pool.
+    if (agentPercentage + agencyPercentage !== 100) {
+      return next(
+        new AppError(
+          'agentShare and agencyShare must total 100%',
+          400
+        )
+      );
+    }
+
+    // Find the Agency represented by the authenticated User.
+    const agency = await Agency.findOne({
+      user: req.user._id,
+    });
+
+    if (!agency) {
+      return next(
+        new AppError(
+          'No agency profile found for this account',
+          404
+        )
+      );
+    }
+
+    // Update only an Agent belonging to this Agency.
+    const agent = await Agent.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        agency: agency._id,
+      },
+      {
+        commissionModel,
+        agentShare: agentPercentage,
+        agencyShare: agencyPercentage,
+        signOnBonus:
+          signOnBonus === undefined
+            ? 0
+            : Number(signOnBonus),
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      }
+    );
+
+    // Prevent cross-Agency Agent updates.
+    if (!agent) {
+      return next(
+        new AppError('Agent not found', 404)
+      );
+    }
+
+    return api.success(
+      res,
+      { agent },
+      'Agent commission settings updated successfully'
+    );
+  } catch (error) {
+    next(error);
+  }
+};

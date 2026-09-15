@@ -9,4 +9,13 @@ router.post('/agents', protect, restrictTo(ROLES.AGENCY), agentController.create
 router.get('/agents', protect, restrictTo(ROLES.AGENCY), agentController.getAgents);
 router.patch('/agents/:id/status', protect, restrictTo(ROLES.AGENCY), agentController.updateAgentStatus);
 
+// Allow an Agency to update commission settings for its own Agent.
+router.patch(
+  '/agents/:id/commission',
+  protect,
+  restrictTo(ROLES.AGENCY),
+  agentController.updateAgentCommission
+);
+
+
 module.exports = router;
