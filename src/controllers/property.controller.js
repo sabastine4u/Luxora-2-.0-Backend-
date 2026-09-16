@@ -417,3 +417,29 @@ exports.declinePropertyAssignment = async (
     next(error);
   }
 };
+
+// Assign or reassign the Property Manager responsible for a Property.
+exports.assignPropertyToManager = async (req, res, next) => {
+  try {
+    const { propertyId } = req.params;
+    const { propertyManagerId } = req.body;
+
+    if (!propertyManagerId) {
+      return next(new AppError("Property Manager ID is required", 400));
+    }
+
+    const property = await propertyService.assignPropertyToManager(
+      propertyId,
+      propertyManagerId,
+      req.user,
+    );
+
+    return api.success(
+      res,
+      { property },
+      "Property manager assigned successfully",
+    );
+  } catch (error) {
+    return next(error);
+  }
+};

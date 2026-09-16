@@ -10,6 +10,9 @@ const Agency = require("../models/agency.model");
 // Import the dedicated Agent model used for Agent-specific relationships.
 const Agent = require("../models/agent.model");
 
+// Import User so Admins can assign only real Property Manager accounts.
+const User = require("../models/user.model");
+
 // Import the application error class used for controlled business errors.
 const AppError = require("../utils/AppError");
 
@@ -408,6 +411,52 @@ const assignPropertyToAgent = async (
   await property.save();
 
   // Return the updated Property.
+  return property;
+};
+
+// Assign or reassign the operational Property Manager for a Property.
+// This is additive to the Agency and Agent listing-assignment workflows.
+const assignPropertyToManager = async (
+  propertyId,
+  propertyManagerId,
+  authenticatedUser,
+) => {
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError("Authenticated user information is required", 401);
+  }
+
+  if (!["Admin", "Super Admin"].includes(authenticatedUser.role)) {
+    throw new AppError(
+      "Only Admin and Super Admin can assign a property manager",
+      403,
+    );
+  }
+
+  const property = await Property.findById(propertyId);
+
+  if (!property) {
+    throw new AppError("Property not found", 404);
+  }
+
+  const propertyManager = await User.findOne({
+    _id: propertyManagerId,
+    role: "Property Manager",
+    isActive: true,
+  }).select("_id");
+
+  if (!propertyManager) {
+    throw new AppError("Active Property Manager not found", 404);
+  }
+
+  property.propertyManager = propertyManager._id;
+
+  // Reuse the Property model's established assignment audit fields. They
+  // represent the latest assignment action and do not alter lifecycle status.
+  property.assignedBy = authenticatedUser._id;
+  property.assignedAt = new Date();
+
+  await property.save();
+
   return property;
 };
 
@@ -929,6 +978,7 @@ module.exports = {
   recordPropertyView,
   assignPropertyToAgency,
   assignPropertyToAgent,
+  assignPropertyToManager,
 
   // Expose the Agent assignment queue to the controller.
   getAgentProperties,

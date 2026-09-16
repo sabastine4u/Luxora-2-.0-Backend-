@@ -1,0 +1,21 @@
+const express = require("express");
+const controller = require("../controllers/intelligence.controller");
+const { protect, restrictTo } = require("../middleware/auth.middleware");
+const { ROLES } = require("../config/constants");
+
+const router = express.Router();
+router.use(protect, restrictTo(ROLES.ANALYST, ROLES.ADMIN));
+router.get("/overview", controller.overview);
+router.get("/counts", controller.counts);
+router.get("/market-trends", controller.marketTrends);
+router.get("/neighborhoods", controller.neighborhoods);
+router.get("/heat-map", controller.heatMap);
+router.get("/comparables", controller.comparables);
+router.get("/rental-yield", controller.rentalYield);
+router.post("/roi-calculation", controller.roiCalculation);
+router.get("/growth-forecast", controller.growthForecast);
+router.get("/investment-scores", controller.investmentScores);
+router.get("/risk-analysis", controller.riskAnalysis);
+router.get("/reports", controller.reports);
+router.get("/alerts", controller.alerts);
+module.exports = router;

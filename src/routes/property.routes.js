@@ -90,6 +90,15 @@ router.patch(
   propertyController.assignPropertyToAgency,
 );
 
+// Allow only Admin and Super Admin users to assign the operational manager.
+// The Property service repeats the authorization and validates the target User.
+router.patch(
+  "/properties/:propertyId/assign-property-manager",
+  protect,
+  restrictTo(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+  propertyController.assignPropertyToManager,
+);
+
 // Allow an authenticated Agency to update a Property belonging to that Agency.
 router.patch(
   "/properties/:propertyId",

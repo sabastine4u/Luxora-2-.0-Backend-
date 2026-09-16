@@ -541,6 +541,15 @@ const propertySchema = new mongoose.Schema(
       default: null,
     },
 
+    // Reference the User accountable for the property's day-to-day management.
+    // This is intentionally independent from the owner, agency, and agent
+    // relationships so assigning a Property Manager never changes listing flow.
+    propertyManager: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
     // Track where the property currently sits in Luxora's assignment workflow.
     assignmentStatus: {
       type: String,
@@ -734,6 +743,12 @@ propertySchema.index({
 // Index the Agency relationship for Agency-level property queries.
 propertySchema.index({
   agency: 1,
+});
+
+// Index the portfolio lookup used by the Property Manager dashboard.
+propertySchema.index({
+  propertyManager: 1,
+  createdAt: -1,
 });
 
 // Index assignment state for Agency and Agent assignment queues.

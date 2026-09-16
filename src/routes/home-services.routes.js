@@ -15,7 +15,11 @@ const {
 
 const router = express.Router();
 
+// This router is mounted at /api/v1 alongside other domains. Scope the
+// Home Services guard to its own path so it cannot authorize/reject requests
+// intended for routes mounted after this router (such as Procurement).
 router.use(
+  "/home-services",
   protect,
   restrictTo(
     ROLES.SERVICE_ADMIN,

@@ -44,6 +44,10 @@ const path = require("path");
 const performanceRoutes = require("./routes/performance.routes");
 
 const homeServicesRoutes = require("./routes/home-services.routes");
+const procurementRoutes = require("./routes/procurement.routes");
+const financeRoutes = require("./routes/finance.routes");
+const intelligenceRoutes = require("./routes/intelligence.routes");
+const propertyManagementRoutes = require("./routes/property-management.routes");
 
 // Allow the frontend (Vite dev server) to talk to this backend
 app.use(
@@ -131,6 +135,10 @@ app.use("/api/v1", uploadRoutes);
 // Mount the Agency Performance API.
 app.use("/api/v1", performanceRoutes);
 app.use("/api/v1", homeServicesRoutes);
+app.use("/api/v1", procurementRoutes);
+app.use("/api/v1", financeRoutes);
+app.use("/api/v1/intelligence", intelligenceRoutes);
+app.use("/api/v1", propertyManagementRoutes);
 
 // Global error handling middleware
 app.use(globalErrorHandler);
