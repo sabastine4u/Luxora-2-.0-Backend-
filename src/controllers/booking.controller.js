@@ -83,6 +83,26 @@ const getAgencyBookings = async (req, res, next) => {
   }
 };
 
+// Get viewing requests for properties assigned to the authenticated Agent.
+const getAgentBookings = async (req, res, next) => {
+  try {
+    const bookings =
+      await bookingService.getBookingsByAgent(
+        req.user._id,
+      );
+
+    return res.status(200).json({
+      status: "success",
+      results: bookings.length,
+      data: {
+        bookings,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 // Cancel a viewing request for the authenticated Buyer.
 const cancelBooking = async (req, res, next) => {
   try {
@@ -128,10 +148,87 @@ const rescheduleBooking = async (req, res, next) => {
   }
 };
 
+// Confirm a viewing request assigned to the authenticated Agent.
+const confirmAgentBooking = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const booking =
+      await bookingService.confirmBookingByAgent(
+        req.user._id,
+        req.params.bookingId,
+      );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        booking,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// Reject a viewing request assigned to the authenticated Agent.
+const rejectAgentBooking = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const booking =
+      await bookingService.rejectBookingByAgent(
+        req.user._id,
+        req.params.bookingId,
+      );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        booking,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+
+// Mark a confirmed viewing as completed.
+const completeAgentBooking = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const booking =
+      await bookingService.completeBookingByAgent(
+        req.user._id,
+        req.params.bookingId,
+      );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        booking,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createBooking,
   getMyBookings,
   getAgencyBookings,
+  getAgentBookings,
+  confirmAgentBooking,
+  rejectAgentBooking,
+  completeAgentBooking,
   cancelBooking,
   rescheduleBooking,
 };

@@ -3,6 +3,21 @@ const agentController = require('../controllers/agent.controller');
 const { protect, restrictTo } = require('../middleware/auth.middleware');
 const { ROLES } = require('../config/constants');
 
+
+
+
+// GET /api/v1/agents/public
+router.get(
+  '/agents/public',
+  agentController.getPublicAgents,
+);
+
+// GET /api/v1/agents/public/:slug
+router.get(
+  '/agents/public/:slug',
+  agentController.getPublicAgent,
+);
+
 // POST /api/v1/agents
 // Only a logged-in Agency can create an Agent (Super Admin bypasses as always)
 router.post('/agents', protect, restrictTo(ROLES.AGENCY), agentController.createAgent);

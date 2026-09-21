@@ -1,8 +1,21 @@
  // Import Joi so we can validate incoming Property search query parameters.
 const Joi = require('joi');
+const {
+  PROPERTY_TYPES,
+} = require('../config/constants');
 
 // Define the validation schema for the public Property search endpoint.
 const searchPropertiesSchema = Joi.object({
+
+  // Validate an optional Agency filter used by public Agency profiles.
+agencyId: Joi.string()
+  .hex()
+  .length(24),
+
+// Validate an optional Agent filter used by public Agent profiles.
+agentId: Joi.string()
+  .hex()
+  .length(24),
 
     // Validate the free-text marketplace search query.
   search: Joi.string()
@@ -11,8 +24,8 @@ const searchPropertiesSchema = Joi.object({
     
   // Validate the Property category filter.
   propertyType: Joi.string()
-    .trim()
-    .max(100),
+  .trim()
+  .valid(...PROPERTY_TYPES),
 
   // Validate the supported Property transaction types.
   transactionType: Joi.string()

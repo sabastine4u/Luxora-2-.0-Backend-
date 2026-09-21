@@ -12,6 +12,7 @@ const offerRoutes = require("./routes/offer.routes");
 const managementRoutes =
   require("./routes/management.routes");
 const reportArchiveRoutes = require("./routes/report-archive.routes");
+const marketplaceRoutes = require("./routes/marketplace.routes");
 // Import the Owner analytics routes.
 const analyticsRoutes = require("./routes/analytics.routes");
 const reportRoutes = require("./routes/report.routes");
@@ -28,6 +29,7 @@ const adminRoutes = require("./routes/admin.routes");
 const complaintRoutes = require("./routes/complaint.routes");
 // Import Property routes for the Property marketplace API.
 const propertyRoutes = require("./routes/property.routes");
+const propertyCategoryRoutes = require("./routes/property-category.routes");
 // Import the routes used by the Contact Agent and Agency inquiry workflow.
 const inquiryRoutes = require("./routes/inquiry.routes");
 // Import Property approval routes for the review workflow.
@@ -42,10 +44,11 @@ const path = require("path");
 
 // Import the Agency Performance routes.
 const performanceRoutes = require("./routes/performance.routes");
-
+const propertyLocationRoutes = require("./routes/property-location.routes");
 const homeServicesRoutes = require("./routes/home-services.routes");
 const procurementRoutes = require("./routes/procurement.routes");
 const financeRoutes = require("./routes/finance.routes");
+const superAdminRoutes = require("./routes/super-admin.routes");
 const intelligenceRoutes = require("./routes/intelligence.routes");
 const propertyManagementRoutes = require("./routes/property-management.routes");
 
@@ -124,10 +127,15 @@ app.use(
 app.use('/api/v1', verificationRoutes);
 // Mount the Agency Commission API after CORS middleware has been registered.
 app.use("/api/v1", commissionRoutes);
+// Mount public marketplace summary data used by the homepage Hero.
+app.use("/api/v1", marketplaceRoutes);
 // Mount Property routes under the versioned API namespace.
 app.use("/api/v1", propertyRoutes);
+app.use("/api/v1", propertyLocationRoutes);
+app.use("/api/v1", propertyCategoryRoutes);
 // Mount Inquiry routes under the dedicated inquiries API namespace.
 app.use("/api/v1/inquiries", inquiryRoutes);
+
 // Mount Property approval routes under the versioned API namespace.
 app.use("/api/v1", approvalRoutes);
 // Mount upload routes under the versioned API namespace.
@@ -137,6 +145,7 @@ app.use("/api/v1", performanceRoutes);
 app.use("/api/v1", homeServicesRoutes);
 app.use("/api/v1", procurementRoutes);
 app.use("/api/v1", financeRoutes);
+app.use("/api/v1/super-admin", superAdminRoutes);
 app.use("/api/v1/intelligence", intelligenceRoutes);
 app.use("/api/v1", propertyManagementRoutes);
 

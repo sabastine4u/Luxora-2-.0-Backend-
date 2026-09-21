@@ -4,6 +4,7 @@ const Agency = require('../models/agency.model');
 const AppError = require('../utils/AppError');
 const api = require('../utils/api-response');
 const { ROLES } = require('../config/constants');
+const agencyService = require('../services/agency.service');
 
 exports.createAgency = async (req, res, next) => {
   let agencyUser; // declared here so the catch block can see it if we need to clean up
@@ -253,6 +254,51 @@ return api.success(
     );
   } catch (error) {
     // Pass unexpected errors to the global error handler.
+    next(error);
+  }
+};
+
+// GET /api/v1/agencies/public
+// Public marketplace Agency directory.
+exports.getPublicAgencies = async (req, res, next) => {
+  try {
+    const result = await agencyService.getPublicAgencies({
+      search: req.query.search,
+      city: req.query.city,
+      specialization: req.query.specialization,
+      sort: req.query.sort,
+      page: Number(req.query.page) || 1,
+      limit: Math.min(Number(req.query.limit) || 9, 100),
+    });
+
+    return api.success(
+      res,
+      result,
+      'Public agencies retrieved successfully',
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/v1/agencies/public/:slug
+// Public Agency profile.
+exports.getPublicAgency = async (req, res, next) => {
+  try {
+    const agency = await agencyService.getPublicAgencyBySlug(
+      req.params.slug,
+    );
+
+    if (!agency) {
+      return next(new AppError('Agency not found', 404));
+    }
+
+    return api.success(
+      res,
+      { agency },
+      'Public agency retrieved successfully',
+    );
+  } catch (error) {
     next(error);
   }
 };

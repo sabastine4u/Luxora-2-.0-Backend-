@@ -174,6 +174,71 @@ const counterOffer = async (req, res, next) => {
   }
 };
 
+// Accept a counter offer as the authenticated Buyer.
+const acceptCounterOffer = async (req, res, next) => {
+  try {
+    const offer = await offerService.acceptCounterOffer(
+      req.user._id,
+      req.params.offerId,
+    );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        offer,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+
+// Reject a counter offer as the authenticated Buyer.
+const rejectCounterOffer = async (req, res, next) => {
+  try {
+    const offer = await offerService.rejectCounterOffer(
+      req.user._id,
+      req.params.offerId,
+    );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        offer,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// Submit a new counter offer as the authenticated Buyer.
+const buyerCounterOffer = async (req, res, next) => {
+  try {
+    // Read the Buyer's new counter amount and message.
+    const { counterOfferAmount, buyerNotes } = req.body;
+
+    // Submit the Buyer's counter offer using the authenticated Buyer ID.
+    const offer = await offerService.buyerCounterOffer(
+      req.user._id,
+      req.params.offerId,
+      Number(counterOfferAmount),
+      buyerNotes,
+    );
+
+    // Return the updated Offer.
+    return res.status(200).json({
+      status: "success",
+      data: {
+        offer,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 // Get all Offers associated with the authenticated Agency.
 const getAgencyOffers = async (req, res, next) => {
   try {
@@ -222,4 +287,7 @@ module.exports = {
   acceptOffer,
   rejectOffer,
   counterOffer,
+  acceptCounterOffer,
+  rejectCounterOffer,
+  buyerCounterOffer,
 };

@@ -9,6 +9,22 @@ const {
 
 const { ROLES } = require("../config/constants");
 
+
+
+// GET /api/v1/agencies/public
+// Public Agency directory.
+router.get(
+  "/agencies/public",
+  agencyController.getPublicAgencies,
+);
+
+// GET /api/v1/agencies/public/:slug
+// Public Agency profile.
+router.get(
+  "/agencies/public/:slug",
+  agencyController.getPublicAgency,
+);
+
 // GET /api/v1/agencies/me
 // Allows an authenticated Agency user to retrieve its own business profile.
 router.get(

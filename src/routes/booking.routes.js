@@ -5,8 +5,12 @@ const {
   createBooking,
   getMyBookings,
   getAgencyBookings,
+  getAgentBookings,
   cancelBooking,
   rescheduleBooking,
+  confirmAgentBooking,
+  rejectAgentBooking,
+  completeAgentBooking,
 } = require("../controllers/booking.controller");
 
 // Import the authentication middleware used by protected API routes.
@@ -32,6 +36,42 @@ router.get(
   protect,
   restrictTo(ROLES.AGENCY),
   getAgencyBookings,
+);
+
+// Allow authenticated Agents to retrieve viewing requests
+// for properties currently assigned to them.
+router.get(
+  "/agent",
+  protect,
+  restrictTo(ROLES.AGENT),
+  getAgentBookings,
+);
+
+// Allow an authenticated Agent to confirm
+// a viewing request assigned to that Agent.
+router.patch(
+  "/:bookingId/confirm",
+  protect,
+  restrictTo(ROLES.AGENT),
+  confirmAgentBooking,
+);
+
+// Allow an authenticated Agent to reject
+// a pending viewing request assigned to them.
+router.patch(
+  "/:bookingId/reject",
+  protect,
+  restrictTo(ROLES.AGENT),
+  rejectAgentBooking,
+);
+
+// Allow an authenticated Agent to mark
+// a confirmed viewing as completed.
+router.patch(
+  "/:bookingId/complete",
+  protect,
+  restrictTo(ROLES.AGENT),
+  completeAgentBooking,
 );
 
 // Allow only authenticated Buyers to create viewing requests.

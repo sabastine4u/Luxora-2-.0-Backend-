@@ -11,6 +11,9 @@ const {
   acceptOffer,
   rejectOffer,
   counterOffer,
+  acceptCounterOffer,
+rejectCounterOffer,
+ buyerCounterOffer,
 } = require("../controllers/offer.controller");
 
 // Import the authentication middleware used by protected API routes.
@@ -37,6 +40,30 @@ router.get(
   protect,
   restrictTo(ROLES.OWNER),
   getOwnerOffers,
+);
+
+// Allow authenticated Buyers to accept an Owner's counter offer.
+router.patch(
+  "/:offerId/accept-counter",
+  protect,
+  restrictTo(ROLES.BUYER),
+  acceptCounterOffer,
+);
+
+// Allow an authenticated Buyer to respond with a new counter offer.
+router.patch(
+  "/:offerId/buyer-counter",
+  protect,
+  restrictTo(ROLES.BUYER),
+  buyerCounterOffer,
+);
+
+// Allow authenticated Buyers to reject an Owner's counter offer.
+router.patch(
+  "/:offerId/reject-counter",
+  protect,
+  restrictTo(ROLES.BUYER),
+  rejectCounterOffer,
 );
 
 // Allow only authenticated Agencies to retrieve Offers belonging to their Agency.

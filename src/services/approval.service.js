@@ -90,6 +90,33 @@ const submitPropertyForReview = async (propertyId, authenticatedUser) => {
         403,
       );
     }
+
+    // Owner-originated Properties must complete the full
+    // Agency -> Agent assignment workflow before review.
+    if (property.origin === "owner") {
+      if (property.assignmentStatus !== "Agent Accepted") {
+        throw new AppError(
+          "This Owner property must be accepted by the assigned Agent before it can be submitted for review",
+          409,
+        );
+      }
+    }
+
+    // Agent-created Properties follow the direct Agent
+    // listing workflow and do not require an assignment.
+    else if (property.origin === "agent") {
+      // No Agency assignment state is required for
+      // an Agent-created Property.
+    }
+
+    // Prevent an Agent from submitting properties
+    // belonging to an unrelated creation workflow.
+    else {
+      throw new AppError(
+        "This Property is not eligible for Agent review submission",
+        409,
+      );
+    }
   }
 
   // Find whether the Property already has a pending Approval record.
@@ -194,10 +221,23 @@ const reviewPropertyApproval = async (
   // Save the approval decision in MongoDB.
   await approval.save();
 
-  // Move the Property to the appropriate lifecycle state based on the decision.
-  property.status = decision === "Approved" ? "Approved" : "Draft";
+  // Move the Property to the appropriate lifecycle state
+  // and keep the verification state aligned with the review decision.
+  if (decision === "Approved") {
+    property.status = "Approved";
 
-  // Save the updated Property lifecycle state.
+    // Approval confirms that the Admin/Super Admin
+    // reviewed the submitted Property documents.
+    property.verificationLevel = "Documents Verified";
+  } else {
+    property.status = "Draft";
+
+    // A rejected Property returns to the unverified state.
+    property.verificationLevel = "Unverified";
+  }
+
+  // Save the updated Property lifecycle state
+  // and verification level together.
   await property.save();
 
   // Return both updated records to the controller.

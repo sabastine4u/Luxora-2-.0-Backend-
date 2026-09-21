@@ -1,5 +1,8 @@
 // Import Joi so we can validate incoming Property request payloads.
 const Joi = require('joi');
+const {
+  PROPERTY_TYPES,
+} = require('../config/constants');
 
 // Define the validation schema for creating a Property.
 const createPropertySchema = Joi.object({
@@ -16,9 +19,14 @@ const createPropertySchema = Joi.object({
     .required(),
 
   // Validate the main Luxora Property category.
-  propertyType: Joi.string()
-    .trim()
-    .required(),
+ propertyType: Joi.string()
+  .trim()
+  .valid(...PROPERTY_TYPES)
+  .required()
+  .messages({
+    'any.only':
+      'Property type must be one of the supported Luxora property categories.',
+  }),
 
   // Validate the optional Property subtype.
   propertySubType: Joi.string()

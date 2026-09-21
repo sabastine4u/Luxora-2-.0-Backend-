@@ -29,6 +29,14 @@ exports.protect = async (req, res, next) => {
         new AppError("User belonging to this token no longer exists", 401),
       );
     }
+
+    // Account-status mutations must affect every authenticated route. An
+    // inactive account may not continue to use an otherwise valid JWT.
+    if (!user.isActive) {
+      return next(
+        new AppError("This account is inactive. Please contact support.", 403),
+      );
+    }
     // Attach the actual user document to the request. Every
     // controller running after this middleware can now read
     // req.user to know exactly who's making the call.

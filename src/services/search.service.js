@@ -84,6 +84,16 @@ const buildPropertySearchFilter = (query) => {
       query.city.trim().toLowerCase();
   }
 
+  // Filter published Properties by Agency.
+if (query.agencyId) {
+  filter.agency = query.agencyId;
+}
+
+// Filter published Properties by Agent.
+if (query.agentId) {
+  filter.agent = query.agentId;
+}
+
   // Apply a minimum price boundary when the client supplied one.
   if (query.minPrice !== undefined) {
     filter.price = {

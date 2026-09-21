@@ -90,6 +90,14 @@ router.patch(
   propertyController.assignPropertyToAgency,
 );
 
+// Allow an authenticated Agency to decline a Property assignment.
+router.patch(
+  "/properties/:propertyId/decline-agency",
+  protect,
+  restrictTo(ROLES.AGENCY),
+  propertyController.declinePropertyForAgency,
+);
+
 // Allow only Admin and Super Admin users to assign the operational manager.
 // The Property service repeats the authorization and validates the target User.
 router.patch(

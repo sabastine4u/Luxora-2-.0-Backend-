@@ -65,12 +65,28 @@ router.patch(
   adminController.updateInternalStaffVerification,
 );
 
-// Return all Admin accounts for Super Admin management.
+// Return all Admin accounts for Super Admin management only.
 router.get(
   "/admin/admins",
   protect,
-  restrictTo(ROLES.ADMIN),
+  restrictTo(ROLES.SUPER_ADMIN),
   adminController.getAllAdmins,
+);
+
+// Allow only Super Admin to edit Admin profiles.
+router.patch(
+  "/admin/admins/:id",
+  protect,
+  restrictTo(ROLES.SUPER_ADMIN),
+  adminController.updateAdmin,
+);
+
+// Allow only Super Admin to suspend or reactivate Admin accounts.
+router.patch(
+  "/admin/admins/:id/status",
+  protect,
+  restrictTo(ROLES.SUPER_ADMIN),
+  adminController.updateAdminStatus,
 );
 
 router.get(

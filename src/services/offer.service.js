@@ -299,6 +299,142 @@ const counterOffer = async (
     .populate("buyer", "fullName email phone");
 };
 
+// Accept a counter offer submitted by the authenticated Buyer.
+const acceptCounterOffer = async (buyerId, offerId) => {
+  // Find the Offer.
+  const offer = await Offer.findById(offerId);
+
+  // Stop when the Offer does not exist.
+  if (!offer) {
+    throw new AppError("Offer not found.", 404);
+  }
+
+  // Make sure the Offer belongs to the authenticated Buyer.
+  if (String(offer.buyer) !== String(buyerId)) {
+    throw new AppError(
+      "You are not authorized to respond to this offer.",
+      403,
+    );
+  }
+
+  // Only an active counter offer can be accepted.
+  if (offer.status !== "Counter Offer Received") {
+    throw new AppError(
+      "This offer does not have a counter offer awaiting your response.",
+      400,
+    );
+  }
+
+  // Accept the Owner's counter offer.
+  offer.status = "Accepted";
+
+  // Save the updated Offer.
+  await offer.save();
+
+  // Return the updated Offer with its related records populated.
+  return Offer.findById(offer._id)
+    .populate("property")
+    .populate("buyer", "fullName email phone");
+};
+
+
+// Reject a counter offer submitted by the authenticated Buyer.
+const rejectCounterOffer = async (buyerId, offerId) => {
+  // Find the Offer.
+  const offer = await Offer.findById(offerId);
+
+  // Stop when the Offer does not exist.
+  if (!offer) {
+    throw new AppError("Offer not found.", 404);
+  }
+
+  // Make sure the Offer belongs to the authenticated Buyer.
+  if (String(offer.buyer) !== String(buyerId)) {
+    throw new AppError(
+      "You are not authorized to respond to this offer.",
+      403,
+    );
+  }
+
+  // Only an active counter offer can be rejected.
+  if (offer.status !== "Counter Offer Received") {
+    throw new AppError(
+      "This offer does not have a counter offer awaiting your response.",
+      400,
+    );
+  }
+
+  // Reject the Owner's counter offer.
+  offer.status = "Rejected";
+
+  // Save the updated Offer.
+  await offer.save();
+
+  // Return the updated Offer with its related records populated.
+  return Offer.findById(offer._id)
+    .populate("property")
+    .populate("buyer", "fullName email phone");
+};
+
+// Submit a new counter offer from the authenticated Buyer.
+const buyerCounterOffer = async (
+  buyerId,
+  offerId,
+  counterOfferAmount,
+  buyerNotes,
+) => {
+  // Find the Offer and make sure it belongs to the authenticated Buyer.
+  const offer = await Offer.findOne({
+    _id: offerId,
+    buyer: buyerId,
+  }).populate("property");
+
+  // Stop when the Offer does not exist or belongs to another Buyer.
+  if (!offer) {
+    throw new AppError("Offer not found.", 404);
+  }
+
+  // A Buyer can only counter an active Owner counter offer.
+  if (offer.status !== "Counter Offer Received") {
+    throw new AppError(
+      "This offer does not currently have a counter offer awaiting your response.",
+      400,
+    );
+  }
+
+  // Validate the new Buyer counter amount.
+  if (
+    typeof counterOfferAmount !== "number" ||
+    counterOfferAmount <= 0
+  ) {
+    throw new AppError(
+      "Counter offer amount must be greater than zero.",
+      400,
+    );
+  }
+
+  // Replace the current Buyer offer with the Buyer's new counter amount.
+  offer.offerAmount = counterOfferAmount;
+
+  // Store the Buyer's latest negotiation message.
+  offer.buyerNotes = buyerNotes || "";
+
+  // The Owner's previous counter has now been answered.
+  offer.counterOfferAmount = null;
+  offer.counterOfferDetails = "";
+
+  // Return the Offer to the normal submitted state so the Owner can respond.
+  offer.status = "Submitted";
+
+  // Save the negotiation update.
+  await offer.save();
+
+  // Return the updated Offer with its related records populated.
+  return Offer.findById(offer._id)
+    .populate("property")
+    .populate("buyer", "fullName email phone");
+};
+
 // Get all Offers associated with Properties belonging to the authenticated Agency.
 const getOffersByAgency = async (agencyId) => {
   // Retrieve Offers using the Agency relationship already stored when the Buyer created the Offer.
@@ -407,4 +543,7 @@ module.exports = {
   acceptOffer,
   rejectOffer,
   counterOffer,
+  acceptCounterOffer,
+  rejectCounterOffer,
+  buyerCounterOffer,
 };

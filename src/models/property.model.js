@@ -1,5 +1,6 @@
 // Import Mongoose so we can define the Property schema and model.
 const mongoose = require("mongoose");
+const { PROPERTY_TYPES } = require("../config/constants");
 
 // Define the Property schema used as the source of truth for Luxora properties.
 const propertySchema = new mongoose.Schema(
@@ -24,6 +25,10 @@ const propertySchema = new mongoose.Schema(
     propertyType: {
       type: String,
       required: [true, "Property type is required"],
+      enum: {
+        values: PROPERTY_TYPES,
+        message: "Invalid Luxora property type",
+      },
       trim: true,
     },
 
@@ -557,6 +562,7 @@ const propertySchema = new mongoose.Schema(
         values: [
           "Pending Agency Assignment",
           "Agency Assigned",
+          "Agency Declined",
           "Agent Assigned",
           "Agent Accepted",
           "Agent Declined",

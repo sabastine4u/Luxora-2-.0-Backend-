@@ -13,4 +13,22 @@ const ROLES = {
   SERVICE_ADMIN: 'Service Manager',
 };
 
-module.exports = { ROLES };
+const PROPERTY_TYPES = [
+  'Apartment',
+  'Duplex',
+  'Studio',
+  'Mini Flat',
+  'Self Contain',
+  'Short Let',
+  'Student Housing',
+  'Affordable Rental',
+  'Family House',
+  'Land',
+  'Warehouse',
+  'Office Space',
+];
+
+module.exports = {
+  ROLES,
+  PROPERTY_TYPES,
+};

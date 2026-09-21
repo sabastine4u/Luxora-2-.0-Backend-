@@ -14,21 +14,632 @@ const Agency = require("../models/agency.model");
 const Agent = require("../models/agent.model");
 const AppError = require("../utils/AppError");
 
-const num = (value, name, { min = 0, required = false } = {}) => { const n = Number(value); if ((required && (value === "" || value == null)) || !Number.isFinite(n) || n < min) throw new AppError(`${name} must be a valid number${min ? ` of at least ${min}` : ""}`, 400); return n; };
-const periodMatch = (query = {}) => { const m = {}; if (query.from || query.to) { m.createdAt = {}; if (query.from) { const d = new Date(query.from); if (Number.isNaN(+d)) throw new AppError("from must be an ISO date", 400); m.createdAt.$gte = d; } if (query.to) { const d = new Date(query.to); if (Number.isNaN(+d)) throw new AppError("to must be an ISO date", 400); m.createdAt.$lte = d; } } return m; };
-const propertyFilter = (q = {}) => { const f = periodMatch(q); ["city", "state", "area", "propertyType", "transactionType", "status"].forEach(k => { if (q[k]) f[k] = q[k]; }); if (q.minPrice || q.maxPrice) { f.price = {}; if(q.minPrice) f.price.$gte=num(q.minPrice,"minPrice"); if(q.maxPrice) f.price.$lte=num(q.maxPrice,"maxPrice"); } return f; };
-const monthly = async (filter) => Property.aggregate([{ $match: filter }, { $group: { _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } }, listings: { $sum: 1 }, averageAskingPrice: { $avg: "$price" }, averageAskingRent: { $avg: "$rentAmount" } } }, { $sort: { "_id.year": 1, "_id.month": 1 } }]);
+const num = (value, name, { min = 0, required = false } = {}) => {
+  const n = Number(value);
+  if (
+    (required && (value === "" || value == null)) ||
+    !Number.isFinite(n) ||
+    n < min
+  )
+    throw new AppError(
+      `${name} must be a valid number${min ? ` of at least ${min}` : ""}`,
+      400,
+    );
+  return n;
+};
 
-exports.getCounts = async () => { const [properties, views, bookings, offers, payments, mortgages, inquiries, services, procurement, users, agencies, agents] = await Promise.all([Property.countDocuments(),PropertyView.countDocuments(),Booking.countDocuments(),Offer.countDocuments(),Payment.countDocuments(),MortgageApplication.countDocuments(),Inquiry.countDocuments(),Service.countDocuments(),Procurement.countDocuments(),User.countDocuments(),Agency.countDocuments(),Agent.countDocuments()]); return { properties, views, bookings, offers, payments, mortgages, inquiries, services, procurement, users, agencies, agents }; };
-exports.getOverview = async (q) => { const filter=propertyFilter(q); const [counts, composition, listingStats, viewCount, bookingCount, offerStats, rentalPayments, mortgagePipeline, commissionLifecycle, serviceTransactions, procurementMetrics] = await Promise.all([exports.getCounts(), Property.aggregate([{ $match:filter },{$group:{_id:{propertyType:"$propertyType",transactionType:"$transactionType"},count:{$sum:1}}}]), Property.aggregate([{ $match:filter },{$group:{_id:null,listings:{$sum:1},published:{$sum:{$cond:[{$eq:["$status","Published"]},1,0]}},available:{$sum:{$cond:[{$eq:["$availabilityStatus","Available"]},1,0]}},averageAskingPrice:{$avg:"$price"},averageAskingRent:{$avg:"$rentAmount"}}}]), PropertyView.countDocuments(periodMatch(q)), Booking.countDocuments(periodMatch(q)), Offer.aggregate([{$match:periodMatch(q)},{$group:{_id:null,total:{$sum:1},accepted:{$sum:{$cond:[{$eq:["$status","Accepted"]},1,0]}}}}]), Payment.aggregate([{$match:{...periodMatch(q),status:"Paid"}},{$group:{_id:null,amount:{$sum:"$amount"},count:{$sum:1}}}]), MortgageApplication.aggregate([{$group:{_id:"$status",count:{$sum:1}}}]), Commission.aggregate([{$group:{_id:"$status",count:{$sum:1}}}]), Service.aggregate([{$match:{recordType:"transaction"}},{$group:{_id:null,count:{$sum:1},operationalAmount:{$sum:"$amount"}}}]), Procurement.aggregate([{$group:{_id:"$recordType",count:{$sum:1},operationalAmount:{$sum:"$amount"}}}])]); const o=listingStats[0]||{}; const offers=offerStats[0]||{}; return { labels:{listingValue:"asking",rentalPayments:"actual paid rentals",serviceAndProcurement:"operational amounts"}, scopes:{listings:"property filters and date range",composition:"property filters and date range",demand:"date range only",counts:"global platform counts",mortgagePipeline:"global platform pipeline",commissionLifecycle:"global platform lifecycle",serviceTransactions:"global operational transactions",procurementMetrics:"global operational records"}, counts, listings:{total:o.listings||0,published:o.published||0,available:o.available||0,averageAskingPrice:o.averageAskingPrice||0,averageAskingRent:o.averageAskingRent||0}, composition, demand:{propertyViews:viewCount,viewingRequests:bookingCount,offers:offers.total||0,acceptedOffers:offers.accepted||0,offerConversionRate:offers.total?Number((offers.accepted/offers.total*100).toFixed(1)):0}, rentalPayments:rentalPayments[0]||{amount:0,count:0}, mortgagePipeline, commissionLifecycle, serviceTransactions:serviceTransactions[0]||{count:0,operationalAmount:0}, procurementMetrics }; };
-exports.getMarketTrends = async q => ({ indicator:"listing/asking indicators; not closed-sale appreciation", periods:await monthly(propertyFilter(q)) });
-exports.getNeighborhoods = async q => { const rows=await Property.aggregate([{ $match:propertyFilter(q) },{$group:{_id:{city:"$city",state:"$state",area:"$area",propertyType:"$propertyType",transactionType:"$transactionType"},sampleSize:{$sum:1},averageAskingPrice:{$avg:"$price"},averageAskingRent:{$avg:"$rentAmount"},properties:{$push:"$_id"}}},{$sort:{sampleSize:-1}}]); const ids=rows.flatMap(r=>r.properties); const [views,bookings,offers]=await Promise.all([PropertyView.aggregate([{$match:{property:{$in:ids}}},{$group:{_id:"$property",count:{$sum:1}}}]),Booking.aggregate([{$match:{property:{$in:ids}}},{$group:{_id:"$property",count:{$sum:1}}}]),Offer.aggregate([{$match:{property:{$in:ids}}},{$group:{_id:"$property",count:{$sum:1}}}])]); const sum=(arr, set)=>arr.filter(x=>set.has(String(x._id))).reduce((s,x)=>s+x.count,0); return { minimumSampleSize:3, neighborhoods:rows.map(r=>{const s=new Set(r.properties.map(String)); return {city:r._id.city,state:r._id.state,area:r._id.area,propertyType:r._id.propertyType,transactionType:r._id.transactionType,sampleSize:r.sampleSize,averageAskingPrice:r.averageAskingPrice||0,averageAskingRent:r.averageAskingRent||0,views:sum(views,s),bookings:sum(bookings,s),offers:sum(offers,s),sufficientData:r.sampleSize>=3}; })}; };
-exports.getHeatMap = async q => { const properties=await Property.find({...propertyFilter(q),"coordinates.latitude":{$ne:null},"coordinates.longitude":{$ne:null}}).select("title city state area price rentAmount coordinates transactionType propertyType status").lean(); return { sufficientData:properties.length>0, message:properties.length?null:"No properties with valid latitude and longitude are available.", points:properties.map(p=>({propertyId:p._id,title:p.title,latitude:p.coordinates.latitude,longitude:p.coordinates.longitude,city:p.city,state:p.state,area:p.area,askingPrice:p.price,askingRent:p.rentAmount,transactionType:p.transactionType,propertyType:p.propertyType,status:p.status})) }; };
-exports.getComparables = async q => { const page=Math.max(1,Number(q.page)||1), limit=Math.min(100,Math.max(1,Number(q.limit)||20)); const filter=propertyFilter(q); const [items,total]=await Promise.all([Property.find(filter).select("title city state area propertyType transactionType price rentAmount priceFrequency status availabilityStatus coordinates createdAt updatedAt").sort({createdAt:-1}).skip((page-1)*limit).limit(limit).lean(),Property.countDocuments(filter)]); return {items,pagination:{page,limit,total,totalPages:Math.ceil(total/limit)}}; };
-exports.getRentalYield = async q => { const base=propertyFilter(q); const filter={...base,price:{...(base.price||{}),$gt:0},rentAmount:{$gt:0}}; const properties=await Property.find(filter).select("title city state area price rentAmount propertyType transactionType").lean(); const items=properties.map(p=>({...p,annualRent:p.rentAmount*12,askingPriceRentalYield:Number((p.rentAmount*12/p.price*100).toFixed(2)),label:"estimated from advertised annual rent and asking price; not realized ROI"})); return {label:"asking-price/rent estimate, not realized ROI",items,averageYield:items.length?Number((items.reduce((s,x)=>s+x.askingPriceRentalYield,0)/items.length).toFixed(2)):0}; };
-exports.calculateROI = body => { const purchasePrice=num(body.purchasePrice,"purchasePrice",{min:0.01,required:true}), monthlyRent=num(body.monthlyRent,"monthlyRent",{required:true}), operatingExpenses=num(body.operatingExpenses||0,"operatingExpenses"), downPaymentPercent=num(body.downPaymentPercent ?? body.downPayment ?? 0,"downPaymentPercent"), vacancyRate=num(body.vacancyRate||0,"vacancyRate"), interestRate=num(body.interestRate||0,"interestRate"), termYears=num(body.loanTermYears ?? body.loanTerm ?? 0,"loanTermYears"); if(downPaymentPercent>100||vacancyRate>100) throw new AppError("Percentages cannot exceed 100",400); const loan=purchasePrice*(1-downPaymentPercent/100), n=termYears*12, r=interestRate/100/12, debt=n&&loan?(r?loan*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1):loan/n):0, gross=monthlyRent*12, effective=gross*(1-vacancyRate/100), expenses=operatingExpenses*12, noi=effective-expenses, annualDebt=debt*12, cashFlow=noi-annualDebt, cashInvested=purchasePrice-loan, capRate=noi/purchasePrice*100; return { assumptions:{purchasePrice,monthlyRent,operatingExpenses,downPaymentPercent,vacancyRate,interestRate,termYears,label:"user-supplied scenario; not persisted and not realized performance"}, results:{annualGrossRent:gross,effectiveAnnualRent:effective,annualOperatingExpenses:expenses,netOperatingIncome:noi,monthlyDebtService:debt,annualDebtService:annualDebt,monthlyCashFlow:cashFlow/12,capRate:Number(capRate.toFixed(2)),cashOnCashReturn:cashInvested?Number((cashFlow/cashInvested*100).toFixed(2)):null} }; };
-exports.getGrowthForecast = async q => { const metric=q.metric||"price"; const periods=await monthly(propertyFilter(q)); const field=metric==="rent"?"averageAskingRent":"averageAskingPrice"; const historical=periods.filter(p=>Number.isFinite(p[field])&&p[field]>0).map(p=>({...p,indicatorValue:p[field]})); if(historical.length<3)return {sufficientData:false,metric,message:"At least three complete monthly periods with the selected asking indicator are required.",historical,forecast:[]}; const avg=historical.reduce((sum,p)=>sum+p.indicatorValue,0)/historical.length; return {sufficientData:true,metric,method:"trailing average of monthly asking indicator values",historical,forecast:[1,2,3].map(monthsAhead=>({monthsAhead,estimatedListingIndicator:avg})),label:`estimated future asking ${metric} indicator; not actual appreciation`}; };
-exports.getInvestmentScores = async q => { const yields=await exports.getRentalYield(q); if(!yields.items.length)return {sufficientData:false,message:"Properties with both an asking price and asking rent are required.",items:[]}; const ids=yields.items.map(i=>i._id); const views=await PropertyView.aggregate([{$match:{property:{$in:ids}}},{$group:{_id:"$property",views:{$sum:1}}}]); const vm=new Map(views.map(v=>[String(v._id),v.views])); return {sufficientData:true,methodology:{askingRentalYield:50,demandViews:25,dataCompleteness:25},items:yields.items.map(i=>{const demand=Math.min(25,(vm.get(String(i._id))||0)*2.5), completeness=i.city&&i.state&&i.propertyType?25:0, yieldScore=Math.min(50,i.askingPriceRentalYield*5); return {propertyId:i._id,title:i.title,score:Number((yieldScore+demand+completeness).toFixed(1)),components:{askingRentalYield:{value:i.askingPriceRentalYield,weight:50,score:yieldScore},demandViews:{value:vm.get(String(i._id))||0,weight:25,score:demand},dataCompleteness:{weight:25,score:completeness}}};})}; };
-exports.getRiskAnalysis = async q => { const properties=await Property.find(propertyFilter(q)).select("title city state area price rentAmount coordinates updatedAt").lean(); return {rules:["missing critical property data","missing coordinates","stale listing information (>90 days)"],items:properties.map(p=>{const flags=[]; if(!p.price&&!p.rentAmount)flags.push("missing price and rent"); if(p.coordinates?.latitude==null||p.coordinates?.longitude==null)flags.push("missing coordinates"); if(Date.now()-new Date(p.updatedAt)>90*864e5)flags.push("stale listing"); return {propertyId:p._id,title:p.title,flags,riskLevel:flags.length>=2?"data-quality attention":flags.length?"review":"no rule triggered"};})}; };
-exports.getReports = async q => ({ generatedAt:new Date().toISOString(), persisted:false, reports:{overview:await exports.getOverview(q),marketTrends:await exports.getMarketTrends(q),neighborhoods:await exports.getNeighborhoods(q) } });
-exports.getAlerts = async q => { const risks=await exports.getRiskAnalysis(q); const alerts=risks.items.filter(i=>i.flags.length).map(i=>({propertyId:i.propertyId,rule:"property data quality check",source:"Property",threshold:"one or more deterministic data-quality conditions",evaluatedPeriod:"current record",measuredValue:i.flags.length,details:i.flags})); return {alerts}; };
+const periodMatch = (query = {}) => {
+  const m = {};
+  if (query.from || query.to) {
+    m.createdAt = {};
+    if (query.from) {
+      const d = new Date(query.from);
+      if (Number.isNaN(+d)) throw new AppError("from must be an ISO date", 400);
+      m.createdAt.$gte = d;
+    }
+    if (query.to) {
+      const d = new Date(query.to);
+      if (Number.isNaN(+d)) throw new AppError("to must be an ISO date", 400);
+      m.createdAt.$lte = d;
+    }
+  }
+  return m;
+};
+
+const propertyFilter = (q = {}) => {
+  const f = periodMatch(q);
+  [
+    "city",
+    "state",
+    "area",
+    "propertyType",
+    "transactionType",
+    "status",
+  ].forEach((k) => {
+    if (q[k]) f[k] = q[k];
+  });
+  if (q.minPrice || q.maxPrice) {
+    f.price = {};
+    if (q.minPrice) f.price.$gte = num(q.minPrice, "minPrice");
+    if (q.maxPrice) f.price.$lte = num(q.maxPrice, "maxPrice");
+  }
+  return f;
+};
+
+const monthly = async (filter) =>
+  Property.aggregate([
+    { $match: filter },
+
+    {
+      $addFields: {
+        trendDate: {
+          $ifNull: [
+            "$createdAt",
+            {
+              $convert: {
+                input: "$_id",
+                to: "date",
+                onError: null,
+                onNull: null,
+              },
+            },
+          ],
+        },
+      },
+    },
+
+    {
+      $match: {
+        trendDate: { $ne: null },
+      },
+    },
+
+    {
+      $group: {
+        _id: {
+          year: { $year: "$trendDate" },
+          month: { $month: "$trendDate" },
+        },
+
+        listings: {
+          $sum: 1,
+        },
+
+        averageAskingPrice: {
+          $avg: "$price",
+        },
+
+        averageAskingRent: {
+          $avg: "$rentAmount",
+        },
+      },
+    },
+
+    {
+      $sort: {
+        "_id.year": 1,
+        "_id.month": 1,
+      },
+    },
+  ]);
+
+exports.getCounts = async () => {
+  const [
+    properties,
+    views,
+    bookings,
+    offers,
+    payments,
+    mortgages,
+    inquiries,
+    services,
+    procurement,
+    users,
+    agencies,
+    agents,
+  ] = await Promise.all([
+    Property.countDocuments(),
+    PropertyView.countDocuments(),
+    Booking.countDocuments(),
+    Offer.countDocuments(),
+    Payment.countDocuments(),
+    MortgageApplication.countDocuments(),
+    Inquiry.countDocuments(),
+    Service.countDocuments(),
+    Procurement.countDocuments(),
+    User.countDocuments(),
+    Agency.countDocuments(),
+    Agent.countDocuments(),
+  ]);
+  return {
+    properties,
+    views,
+    bookings,
+    offers,
+    payments,
+    mortgages,
+    inquiries,
+    services,
+    procurement,
+    users,
+    agencies,
+    agents,
+  };
+};
+exports.getOverview = async (q) => {
+  const filter = propertyFilter(q);
+  const [
+    counts,
+    composition,
+    listingStats,
+    viewCount,
+    bookingCount,
+    offerStats,
+    rentalPayments,
+    mortgagePipeline,
+    commissionLifecycle,
+    serviceTransactions,
+    procurementMetrics,
+  ] = await Promise.all([
+    exports.getCounts(),
+    Property.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: {
+            propertyType: "$propertyType",
+            transactionType: "$transactionType",
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+    Property.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          listings: { $sum: 1 },
+          published: {
+            $sum: { $cond: [{ $eq: ["$status", "Published"] }, 1, 0] },
+          },
+          available: {
+            $sum: {
+              $cond: [{ $eq: ["$availabilityStatus", "Available"] }, 1, 0],
+            },
+          },
+          averageAskingPrice: { $avg: "$price" },
+          averageAskingRent: { $avg: "$rentAmount" },
+        },
+      },
+    ]),
+    PropertyView.countDocuments(periodMatch(q)),
+    Booking.countDocuments(periodMatch(q)),
+    Offer.aggregate([
+      { $match: periodMatch(q) },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          accepted: {
+            $sum: { $cond: [{ $eq: ["$status", "Accepted"] }, 1, 0] },
+          },
+        },
+      },
+    ]),
+    Payment.aggregate([
+      { $match: { ...periodMatch(q), status: "Paid" } },
+      {
+        $group: { _id: null, amount: { $sum: "$amount" }, count: { $sum: 1 } },
+      },
+    ]),
+    MortgageApplication.aggregate([
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    Commission.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
+    Service.aggregate([
+      { $match: { recordType: "transaction" } },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          operationalAmount: { $sum: "$amount" },
+        },
+      },
+    ]),
+    Procurement.aggregate([
+      {
+        $group: {
+          _id: "$recordType",
+          count: { $sum: 1 },
+          operationalAmount: { $sum: "$amount" },
+        },
+      },
+    ]),
+  ]);
+  const o = listingStats[0] || {};
+  const offers = offerStats[0] || {};
+  return {
+    labels: {
+      listingValue: "asking",
+      rentalPayments: "actual paid rentals",
+      serviceAndProcurement: "operational amounts",
+    },
+    scopes: {
+      listings: "property filters and date range",
+      composition: "property filters and date range",
+      demand: "date range only",
+      counts: "global platform counts",
+      mortgagePipeline: "global platform pipeline",
+      commissionLifecycle: "global platform lifecycle",
+      serviceTransactions: "global operational transactions",
+      procurementMetrics: "global operational records",
+    },
+    counts,
+    listings: {
+      total: o.listings || 0,
+      published: o.published || 0,
+      available: o.available || 0,
+      averageAskingPrice: o.averageAskingPrice || 0,
+      averageAskingRent: o.averageAskingRent || 0,
+    },
+    composition,
+    demand: {
+      propertyViews: viewCount,
+      viewingRequests: bookingCount,
+      offers: offers.total || 0,
+      acceptedOffers: offers.accepted || 0,
+      offerConversionRate: offers.total
+        ? Number(((offers.accepted / offers.total) * 100).toFixed(1))
+        : 0,
+    },
+    rentalPayments: rentalPayments[0] || { amount: 0, count: 0 },
+    mortgagePipeline,
+    commissionLifecycle,
+    serviceTransactions: serviceTransactions[0] || {
+      count: 0,
+      operationalAmount: 0,
+    },
+    procurementMetrics,
+  };
+};
+exports.getMarketTrends = async (q) => ({
+  indicator: "listing/asking indicators; not closed-sale appreciation",
+  periods: await monthly(propertyFilter(q)),
+});
+exports.getNeighborhoods = async (q) => {
+  const rows = await Property.aggregate([
+    { $match: propertyFilter(q) },
+    {
+      $group: {
+        _id: {
+          city: "$city",
+          state: "$state",
+          area: "$area",
+          propertyType: "$propertyType",
+          transactionType: "$transactionType",
+        },
+        sampleSize: { $sum: 1 },
+        averageAskingPrice: { $avg: "$price" },
+        averageAskingRent: { $avg: "$rentAmount" },
+        properties: { $push: "$_id" },
+      },
+    },
+    { $sort: { sampleSize: -1 } },
+  ]);
+  const ids = rows.flatMap((r) => r.properties);
+  const [views, bookings, offers] = await Promise.all([
+    PropertyView.aggregate([
+      { $match: { property: { $in: ids } } },
+      { $group: { _id: "$property", count: { $sum: 1 } } },
+    ]),
+    Booking.aggregate([
+      { $match: { property: { $in: ids } } },
+      { $group: { _id: "$property", count: { $sum: 1 } } },
+    ]),
+    Offer.aggregate([
+      { $match: { property: { $in: ids } } },
+      { $group: { _id: "$property", count: { $sum: 1 } } },
+    ]),
+  ]);
+  const sum = (arr, set) =>
+    arr.filter((x) => set.has(String(x._id))).reduce((s, x) => s + x.count, 0);
+  return {
+    minimumSampleSize: 3,
+    neighborhoods: rows.map((r) => {
+      const s = new Set(r.properties.map(String));
+      return {
+        city: r._id.city,
+        state: r._id.state,
+        area: r._id.area,
+        propertyType: r._id.propertyType,
+        transactionType: r._id.transactionType,
+        sampleSize: r.sampleSize,
+        averageAskingPrice: r.averageAskingPrice || 0,
+        averageAskingRent: r.averageAskingRent || 0,
+        views: sum(views, s),
+        bookings: sum(bookings, s),
+        offers: sum(offers, s),
+        sufficientData: r.sampleSize >= 3,
+      };
+    }),
+  };
+};
+exports.getHeatMap = async (q) => {
+  const properties = await Property.find({
+    ...propertyFilter(q),
+    "coordinates.latitude": { $ne: null },
+    "coordinates.longitude": { $ne: null },
+  })
+    .select(
+      "title city state area price rentAmount coordinates transactionType propertyType status",
+    )
+    .lean();
+  return {
+    sufficientData: properties.length > 0,
+    message: properties.length
+      ? null
+      : "No properties with valid latitude and longitude are available.",
+    points: properties.map((p) => ({
+      propertyId: p._id,
+      title: p.title,
+      latitude: p.coordinates.latitude,
+      longitude: p.coordinates.longitude,
+      city: p.city,
+      state: p.state,
+      area: p.area,
+      askingPrice: p.price,
+      askingRent: p.rentAmount,
+      transactionType: p.transactionType,
+      propertyType: p.propertyType,
+      status: p.status,
+    })),
+  };
+};
+exports.getComparables = async (q) => {
+  const page = Math.max(1, Number(q.page) || 1),
+    limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+  const filter = propertyFilter(q);
+  const [items, total] = await Promise.all([
+    Property.find(filter)
+      .select(
+        "title city state area propertyType transactionType price rentAmount priceFrequency status availabilityStatus coordinates createdAt updatedAt",
+      )
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Property.countDocuments(filter),
+  ]);
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+exports.getRentalYield = async (q) => {
+  const base = propertyFilter(q);
+  const filter = {
+    ...base,
+    price: { ...(base.price || {}), $gt: 0 },
+    rentAmount: { $gt: 0 },
+  };
+  const properties = await Property.find(filter)
+    .select(
+      "title city state area price rentAmount propertyType transactionType",
+    )
+    .lean();
+  const items = properties.map((p) => ({
+    ...p,
+    annualRent: p.rentAmount * 12,
+    askingPriceRentalYield: Number(
+      (((p.rentAmount * 12) / p.price) * 100).toFixed(2),
+    ),
+    label:
+      "estimated from advertised annual rent and asking price; not realized ROI",
+  }));
+  return {
+    label: "asking-price/rent estimate, not realized ROI",
+    items,
+    averageYield: items.length
+      ? Number(
+          (
+            items.reduce((s, x) => s + x.askingPriceRentalYield, 0) /
+            items.length
+          ).toFixed(2),
+        )
+      : 0,
+  };
+};
+exports.calculateROI = (body) => {
+  const purchasePrice = num(body.purchasePrice, "purchasePrice", {
+      min: 0.01,
+      required: true,
+    }),
+    monthlyRent = num(body.monthlyRent, "monthlyRent", { required: true }),
+    operatingExpenses = num(body.operatingExpenses || 0, "operatingExpenses"),
+    downPaymentPercent = num(
+      body.downPaymentPercent ?? body.downPayment ?? 0,
+      "downPaymentPercent",
+    ),
+    vacancyRate = num(body.vacancyRate || 0, "vacancyRate"),
+    interestRate = num(body.interestRate || 0, "interestRate"),
+    termYears = num(body.loanTermYears ?? body.loanTerm ?? 0, "loanTermYears");
+  if (downPaymentPercent > 100 || vacancyRate > 100)
+    throw new AppError("Percentages cannot exceed 100", 400);
+  const loan = purchasePrice * (1 - downPaymentPercent / 100),
+    n = termYears * 12,
+    r = interestRate / 100 / 12,
+    debt =
+      n && loan
+        ? r
+          ? (loan * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)
+          : loan / n
+        : 0,
+    gross = monthlyRent * 12,
+    effective = gross * (1 - vacancyRate / 100),
+    expenses = operatingExpenses * 12,
+    noi = effective - expenses,
+    annualDebt = debt * 12,
+    cashFlow = noi - annualDebt,
+    cashInvested = purchasePrice - loan,
+    capRate = (noi / purchasePrice) * 100;
+  return {
+    assumptions: {
+      purchasePrice,
+      monthlyRent,
+      operatingExpenses,
+      downPaymentPercent,
+      vacancyRate,
+      interestRate,
+      termYears,
+      label:
+        "user-supplied scenario; not persisted and not realized performance",
+    },
+    results: {
+      annualGrossRent: gross,
+      effectiveAnnualRent: effective,
+      annualOperatingExpenses: expenses,
+      netOperatingIncome: noi,
+      monthlyDebtService: debt,
+      annualDebtService: annualDebt,
+      monthlyCashFlow: cashFlow / 12,
+      capRate: Number(capRate.toFixed(2)),
+      cashOnCashReturn: cashInvested
+        ? Number(((cashFlow / cashInvested) * 100).toFixed(2))
+        : null,
+    },
+  };
+};
+exports.getGrowthForecast = async (q) => {
+  const metric = q.metric || "price";
+  const periods = await monthly(propertyFilter(q));
+  const field = metric === "rent" ? "averageAskingRent" : "averageAskingPrice";
+  const historical = periods
+    .filter((p) => Number.isFinite(p[field]) && p[field] > 0)
+    .map((p) => ({ ...p, indicatorValue: p[field] }));
+  if (historical.length < 3)
+    return {
+      sufficientData: false,
+      metric,
+      message:
+        "At least three complete monthly periods with the selected asking indicator are required.",
+      historical,
+      forecast: [],
+    };
+  const avg =
+    historical.reduce((sum, p) => sum + p.indicatorValue, 0) /
+    historical.length;
+  return {
+    sufficientData: true,
+    metric,
+    method: "trailing average of monthly asking indicator values",
+    historical,
+    forecast: [1, 2, 3].map((monthsAhead) => ({
+      monthsAhead,
+      estimatedListingIndicator: avg,
+    })),
+    label: `estimated future asking ${metric} indicator; not actual appreciation`,
+  };
+};
+exports.getInvestmentScores = async (q) => {
+  const yields = await exports.getRentalYield(q);
+  if (!yields.items.length)
+    return {
+      sufficientData: false,
+      message:
+        "Properties with both an asking price and asking rent are required.",
+      items: [],
+    };
+  const ids = yields.items.map((i) => i._id);
+  const views = await PropertyView.aggregate([
+    { $match: { property: { $in: ids } } },
+    { $group: { _id: "$property", views: { $sum: 1 } } },
+  ]);
+  const vm = new Map(views.map((v) => [String(v._id), v.views]));
+  return {
+    sufficientData: true,
+    methodology: {
+      askingRentalYield: 50,
+      demandViews: 25,
+      dataCompleteness: 25,
+    },
+    items: yields.items.map((i) => {
+      const demand = Math.min(25, (vm.get(String(i._id)) || 0) * 2.5),
+        completeness = i.city && i.state && i.propertyType ? 25 : 0,
+        yieldScore = Math.min(50, i.askingPriceRentalYield * 5);
+      return {
+        propertyId: i._id,
+        title: i.title,
+        score: Number((yieldScore + demand + completeness).toFixed(1)),
+        components: {
+          askingRentalYield: {
+            value: i.askingPriceRentalYield,
+            weight: 50,
+            score: yieldScore,
+          },
+          demandViews: {
+            value: vm.get(String(i._id)) || 0,
+            weight: 25,
+            score: demand,
+          },
+          dataCompleteness: { weight: 25, score: completeness },
+        },
+      };
+    }),
+  };
+};
+exports.getRiskAnalysis = async (q) => {
+  const properties = await Property.find(propertyFilter(q))
+    .select("title city state area price rentAmount coordinates updatedAt")
+    .lean();
+  return {
+    rules: [
+      "missing critical property data",
+      "missing coordinates",
+      "stale listing information (>90 days)",
+    ],
+    items: properties.map((p) => {
+      const flags = [];
+      if (!p.price && !p.rentAmount) flags.push("missing price and rent");
+      if (p.coordinates?.latitude == null || p.coordinates?.longitude == null)
+        flags.push("missing coordinates");
+      if (Date.now() - new Date(p.updatedAt) > 90 * 864e5)
+        flags.push("stale listing");
+      return {
+        propertyId: p._id,
+        title: p.title,
+        flags,
+        riskLevel:
+          flags.length >= 2
+            ? "data-quality attention"
+            : flags.length
+              ? "review"
+              : "no rule triggered",
+      };
+    }),
+  };
+};
+exports.getReports = async (q) => ({
+  generatedAt: new Date().toISOString(),
+  persisted: false,
+  reports: {
+    overview: await exports.getOverview(q),
+    marketTrends: await exports.getMarketTrends(q),
+    neighborhoods: await exports.getNeighborhoods(q),
+  },
+});
+exports.getAlerts = async (q) => {
+  const risks = await exports.getRiskAnalysis(q);
+  const alerts = risks.items
+    .filter((i) => i.flags.length)
+    .map((i) => ({
+      propertyId: i.propertyId,
+      rule: "property data quality check",
+      source: "Property",
+      threshold: "one or more deterministic data-quality conditions",
+      evaluatedPeriod: "current record",
+      measuredValue: i.flags.length,
+      details: i.flags,
+    }));
+  return { alerts };
+};

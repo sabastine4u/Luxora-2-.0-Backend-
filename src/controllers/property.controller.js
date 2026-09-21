@@ -213,6 +213,33 @@ exports.assignPropertyToAgency = async (req, res, next) => {
   }
 };
 
+// Decline a Property assignment for the authenticated Agency.
+exports.declinePropertyForAgency = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const { propertyId } = req.params;
+    const { reason } = req.body;
+
+    const property =
+      await propertyService.declinePropertyForAgency(
+        propertyId,
+        reason,
+        req.user,
+      );
+
+    return api.success(
+      res,
+      { property },
+      "Property assignment declined successfully",
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Assign or reassign a Property to an Agent.
 exports.assignPropertyToAgent = async (req, res, next) => {
   try {

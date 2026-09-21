@@ -18,9 +18,10 @@ const MAX_FILES_PER_REQUEST = 20;
 
 // Define the image MIME types Luxora accepts for Property photos.
 const ALLOWED_IMAGE_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
 ];
 
 // Define the document MIME types Luxora accepts for Property documents

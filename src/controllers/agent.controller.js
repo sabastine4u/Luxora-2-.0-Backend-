@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const Agency = require('../models/agency.model');
 const Agent = require('../models/agent.model');
 const AppError = require('../utils/AppError');
+const agentService = require('../services/agent.service');
 const api = require('../utils/api-response');
 const { ROLES } = require('../config/constants');
 
@@ -349,6 +350,50 @@ exports.updateAgentCommission = async (req, res, next) => {
       res,
       { agent },
       'Agent commission settings updated successfully'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/v1/agents/public
+// Public marketplace Agent directory.
+exports.getPublicAgents = async (req, res, next) => {
+  try {
+    const result = await agentService.getPublicAgents({
+      search: req.query.search,
+      agencyId: req.query.agencyId,
+      sort: req.query.sort,
+      page: Number(req.query.page) || 1,
+      limit: Math.min(Number(req.query.limit) || 12, 100),
+    });
+
+    return api.success(
+      res,
+      result,
+      'Public agents retrieved successfully',
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/v1/agents/public/:slug
+// Public Agent profile.
+exports.getPublicAgent = async (req, res, next) => {
+  try {
+    const agent = await agentService.getPublicAgentBySlug(
+      req.params.slug,
+    );
+
+    if (!agent) {
+      return next(new AppError('Agent not found', 404));
+    }
+
+    return api.success(
+      res,
+      { agent },
+      'Public agent retrieved successfully',
     );
   } catch (error) {
     next(error);

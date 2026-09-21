@@ -104,11 +104,13 @@ const createProperty = async (propertyData, authenticatedUser) => {
     propertyPayload.assignmentStatus = "Pending Agency Assignment";
   }
 
-  // Agent-created listings already have an Agent and therefore an Agency assignment.
-  if (authenticatedUser.role === "Agent" && propertyPayload.agency) {
-    propertyPayload.assignmentStatus = "Agent Assigned";
+  // Agent-created listings are already owned by the authenticated Agent.
+  // They do not enter the incoming Assignment queue.
+  // The Agent's own listing will remain in My Listings and move through
+  // the normal Draft -> Pending Review -> Approved -> Published lifecycle.
+  if (authenticatedUser.role === "Agent") {
+    propertyPayload.assignmentStatus = null;
   }
-
   // Create the Property record in MongoDB.
   const property = await Property.create(propertyPayload);
 
@@ -270,8 +272,50 @@ const assignPropertyToAgency = async (
     throw new AppError("Property not found", 404);
   }
 
+  // Only Owner-originated Properties enter the
+  // Admin/Super Admin -> Agency assignment workflow.
+  if (property.origin !== "owner") {
+    throw new AppError(
+      "Only Owner-submitted properties can be assigned to an agency",
+      409,
+    );
+  }
+
+  // The Property must still be waiting for its initial Agency assignment.
+ if (
+  ![
+    "Pending Agency Assignment",
+    "Agency Declined",
+    "Agency Assigned",
+  ].includes(property.assignmentStatus)
+) {
+  throw new AppError(
+    "This Property cannot be assigned to an Agency in its current workflow state",
+    409,
+  );
+}
+
+  // Owner properties must still be in Draft before Agency assignment.
+  if (property.status !== "Draft") {
+    throw new AppError(
+      "Only Draft Owner properties can be assigned to an agency",
+      409,
+    );
+  }
   // Find the Agency that will receive the Property.
   const agency = await Agency.findById(agencyId);
+
+  // Prevent reassigning the Property to the same Agency that declined it.
+if (
+  property.assignmentStatus === "Agency Declined" &&
+  property.agency &&
+  property.agency.toString() === agencyId.toString()
+) {
+  throw new AppError(
+    "You cannot reassign the property to the same agency that declined it",
+    409,
+  );
+}
 
   // Stop when the Agency does not exist.
   if (!agency) {
@@ -310,6 +354,96 @@ const assignPropertyToAgency = async (
   return property;
 };
 
+// Allow the authenticated Agency to decline an Owner-submitted Property assignment.
+const declinePropertyForAgency = async (
+  propertyId,
+  reason,
+  authenticatedUser,
+) => {
+  // Ensure a valid authenticated user was provided.
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError(
+      "Authenticated user information is required",
+      401,
+    );
+  }
+
+  // Only Agency users can decline Agency assignments.
+  if (authenticatedUser.role !== "Agency") {
+    throw new AppError(
+      "Only an Agency can decline a property assignment",
+      403,
+    );
+  }
+
+  // Normalize the Agency's rejection reason.
+  const responseNote =
+    typeof reason === "string" ? reason.trim() : "";
+
+  // A reason is mandatory for an Agency rejection.
+  if (!responseNote) {
+    throw new AppError(
+      "A reason is required when declining a property assignment",
+      400,
+    );
+  }
+
+  // Find the Agency linked to the authenticated User.
+  const agency = await Agency.findOne({
+    user: authenticatedUser._id,
+  }).select("_id status");
+
+  if (!agency) {
+    throw new AppError(
+      "Agency profile not found for the authenticated user",
+      404,
+    );
+  }
+
+  // Only Active Agencies can respond to assignments.
+  if (agency.status !== "Active") {
+    throw new AppError(
+      "A suspended agency cannot decline property assignments",
+      403,
+    );
+  }
+
+  // Only the currently assigned Agency can decline this assignment.
+  const property = await Property.findOne({
+    _id: propertyId,
+    agency: agency._id,
+    origin: "owner",
+    status: "Draft",
+    assignmentStatus: "Agency Assigned",
+  });
+
+  if (!property) {
+    throw new AppError(
+      "Property assignment not found or no longer awaiting an Agency response",
+      404,
+    );
+  }
+
+  // Record the Agency rejection.
+  property.assignmentStatus = "Agency Declined";
+
+  // Record the Agency User who rejected the assignment.
+  property.assignmentRespondedBy = authenticatedUser._id;
+
+  // Record when the Agency responded.
+  property.assignmentRespondedAt = new Date();
+
+  // Store the rejection reason.
+  property.assignmentResponseNote = responseNote;
+
+  // There should not be an Agent attached at this stage.
+  property.agent = null;
+
+  await property.save();
+
+  return property;
+};
+
 // Assign or reassign a Property to an Agent.
 // Only the Agency responsible for the Property can perform this operation.
 const assignPropertyToAgent = async (
@@ -341,6 +475,33 @@ const assignPropertyToAgent = async (
   // Ensure the Property already has an Agency assigned.
   if (!property.agency) {
     throw new AppError("This property has not been assigned to an agency", 400);
+  }
+
+  // Agency assignment is only valid for the Owner workflow.
+  if (property.origin !== "owner") {
+    throw new AppError(
+      "Only Owner-submitted properties can be assigned through the Agency workflow",
+      409,
+    );
+  }
+
+  // A new Agent assignment must begin after the Agency
+  // has accepted ownership of the property assignment.
+  // Agent Declined is also allowed so the Agency can reassign
+  // the property to another Agent.
+  if (
+    property.assignmentStatus !== "Agency Assigned" &&
+    property.assignmentStatus !== "Agent Declined"
+  ) {
+    throw new AppError("This Property is not ready for Agent assignment", 409);
+  }
+
+  // The property itself should still be in Draft.
+  if (property.status !== "Draft") {
+    throw new AppError(
+      "Only Draft Owner properties can be assigned to an agent",
+      409,
+    );
   }
 
   // Find the Agency profile linked to the authenticated Agency User.
@@ -496,10 +657,10 @@ const getAgentProperties = async (authenticatedUser) => {
     );
   }
 
-  // Return only Properties currently waiting for this Agent's response.
   const properties = await Property.find({
     agent: agent._id,
     assignmentStatus: "Agent Assigned",
+    origin: { $ne: "agent" },
   })
     // Populate the Owner who originally submitted the Property.
     .populate({
@@ -553,10 +714,19 @@ const getAgentListings = async (authenticatedUser) => {
     throw new AppError("Only active agents can access agent listings", 403);
   }
 
-  // Return Properties that this Agent has accepted for active management.
   const properties = await Property.find({
     agent: agent._id,
-    assignmentStatus: "Agent Accepted",
+    $or: [
+      // Properties created directly by this Agent.
+      {
+        origin: "agent",
+      },
+
+      // Properties assigned by an Agency and accepted by this Agent.
+      {
+        assignmentStatus: "Agent Accepted",
+      },
+    ],
   })
     // Populate the Owner attached to the Property.
     .populate({
@@ -978,6 +1148,7 @@ module.exports = {
   recordPropertyView,
   assignPropertyToAgency,
   assignPropertyToAgent,
+  declinePropertyForAgency,
   assignPropertyToManager,
 
   // Expose the Agent assignment queue to the controller.
