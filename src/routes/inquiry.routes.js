@@ -9,6 +9,7 @@ const inquiryController = require("../controllers/inquiry.controller");
 // Import the existing authentication middleware.
 const {
   protect,
+  optionalProtect,
   restrictTo,
 } = require("../middleware/auth.middleware");
 
@@ -18,6 +19,7 @@ const { ROLES } = require("../config/constants");
 // Public endpoint used by the Contact Agent form.
 router.post(
   "/",
+  optionalProtect,
   inquiryController.createInquiry,
 );
 

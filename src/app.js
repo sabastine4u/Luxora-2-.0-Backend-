@@ -3,6 +3,7 @@ const authRoutes = require("./routes/auth.routes");
 const app = express();
 const globalErrorHandler = require("./middleware/error.middleware");
 const cors = require("cors");
+const registerEventListeners = require("./events/register-listeners");
 // Import the protected Buyer Favorites routes.
 const favoriteRoutes = require("./routes/favorite.routes");
 // Import the routes used for Buyer viewing requests.
@@ -32,6 +33,9 @@ const propertyRoutes = require("./routes/property.routes");
 const propertyCategoryRoutes = require("./routes/property-category.routes");
 // Import the routes used by the Contact Agent and Agency inquiry workflow.
 const inquiryRoutes = require("./routes/inquiry.routes");
+const conversationRoutes = require("./routes/conversation.routes");
+const messageRoutes = require("./routes/message.routes");
+const notificationRoutes = require("./routes/notification.routes");
 // Import Property approval routes for the review workflow.
 const approvalRoutes = require("./routes/approval.routes");
 const departmentRoutes =
@@ -41,6 +45,9 @@ const verificationRoutes = require('./routes/verification.routes');
 // Import upload routes for Property image and document uploads.
 const uploadRoutes = require("./routes/upload.routes");
 const path = require("path");
+
+// Register in-process domain listeners once when the application is loaded.
+registerEventListeners();
 
 // Import the Agency Performance routes.
 const performanceRoutes = require("./routes/performance.routes");
@@ -135,6 +142,9 @@ app.use("/api/v1", propertyLocationRoutes);
 app.use("/api/v1", propertyCategoryRoutes);
 // Mount Inquiry routes under the dedicated inquiries API namespace.
 app.use("/api/v1/inquiries", inquiryRoutes);
+app.use("/api/v1/conversations", conversationRoutes);
+app.use("/api/v1/messages", messageRoutes);
+app.use("/api/v1/notifications", notificationRoutes);
 
 // Mount Property approval routes under the versioned API namespace.
 app.use("/api/v1", approvalRoutes);

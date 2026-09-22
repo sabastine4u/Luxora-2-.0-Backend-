@@ -43,6 +43,15 @@ const inquirySchema = new mongoose.Schema(
       index: true,
     },
 
+    // Authenticated inquiry retries are scoped to the resolved User identity.
+    // Anonymous inquiries intentionally do not require an idempotency key.
+    idempotencyKey: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: [255, "Idempotency key cannot exceed 255 characters"],
+    },
+
     // Store the name supplied by the person making the inquiry.
     fullName: {
       type: String,
@@ -267,6 +276,20 @@ inquirySchema.index({
   scheduledDate: 1,
   appointmentStatus: 1,
 });
+
+inquirySchema.index(
+  { inquirer: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      // `$ne` is not supported in a partial-index expression by the deployed
+      // MongoDB version.  The BSON type predicate is the precise supported
+      // equivalent for authenticated User ObjectIds.
+      inquirer: { $type: "objectId" },
+      idempotencyKey: { $type: "string" },
+    },
+  },
+);
 
 // Export the Inquiry model for controllers, services, and analytics.
 module.exports = mongoose.model("Inquiry", inquirySchema);

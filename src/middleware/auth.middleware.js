@@ -8,15 +8,8 @@ const AppError = require("../utils/AppError");
 // Final step: look up the actual user this token belongs to, and
 // attach them to req.user so any controller after this can know
 // exactly who is making the request.
-exports.protect = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return next(new AppError("No token provided, access denied", 401));
-  }
-
-  const token = authHeader.split(" ")[1];
-
+const authenticateRequest = async (req, next) => {
+  const token = req.headers.authorization.split(" ")[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
@@ -42,7 +35,7 @@ exports.protect = async (req, res, next) => {
     // req.user to know exactly who's making the call.
     req.user = user;
 
-    next();
+    return next();
   } catch (error) {
     if (error.name === "JsonWebTokenError") {
       return next(new AppError("Invalid token", 401));
@@ -52,8 +45,32 @@ exports.protect = async (req, res, next) => {
       return next(new AppError("Token expired. Please log in again.", 401));
     }
 
-    next(error);
+    return next(error);
   }
+};
+
+exports.protect = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return next(new AppError("No token provided, access denied", 401));
+  }
+
+  return authenticateRequest(req, next);
+};
+
+// A public route can attach an identity when a valid credential is supplied,
+// while malformed supplied credentials are never treated as anonymous access.
+exports.optionalProtect = async (req, res, next) => {
+  if (!req.headers.authorization) {
+    return next();
+  }
+
+  if (!req.headers.authorization.startsWith("Bearer ")) {
+    return next(new AppError("No token provided, access denied", 401));
+  }
+
+  return authenticateRequest(req, next);
 };
 
 // protect must always run BEFORE this — restrictTo assumes req.user

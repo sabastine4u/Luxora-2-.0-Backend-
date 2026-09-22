@@ -3,6 +3,8 @@ const inquiryService = require("../services/inquiry.service");
 
 // Import the centralized API response helper.
 const api = require("../utils/api-response");
+const AppError = require("../utils/AppError");
+const { createInquirySchema } = require("../validators/inquiry.validator");
 
 // Create a new property inquiry.
 exports.createInquiry = async (
@@ -11,18 +13,32 @@ exports.createInquiry = async (
   next,
 ) => {
   try {
-    // Pass the submitted inquiry fields and authenticated user to the service.
-    const inquiry =
-      await inquiryService.createInquiry(
-        req.body,
-        req.user || null,
+    const { error, value } = createInquirySchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: false,
+    });
+    if (error) {
+      throw new AppError(
+        error.details.map((detail) => detail.message).join(", "),
+        400,
       );
+    }
 
-    // Return the newly created Inquiry with HTTP 201.
-    return api.created(
+    const result = await inquiryService.createInquiry(
+      value,
+      req.user || null,
+      req.headers["x-idempotency-key"],
+    );
+
+    if (!req.user) {
+      return api.created(res, { inquiry: result }, "Inquiry submitted successfully");
+    }
+
+    return api.success(
       res,
-      { inquiry },
+      result,
       "Inquiry submitted successfully",
+      result.created.inquiry ? 201 : 200,
     );
   } catch (error) {
     // Forward service/database errors to the global error middleware.

@@ -28,7 +28,43 @@ const PROPERTY_TYPES = [
   'Office Space',
 ];
 
+// Communication constants are intentionally small at this stage.  They give
+// future communication models and services one canonical vocabulary without
+// activating every possible conversation workflow.
+const COMMUNICATION = {
+  CONVERSATION_TYPES: {
+    PROPERTY_INQUIRY: "property_inquiry",
+    DIRECT: "direct",
+    SUPPORT: "support",
+  },
+  CONVERSATION_STATUSES: {
+    ACTIVE: "active",
+    CLOSED: "closed",
+  },
+};
+
+const NOTIFICATION = {
+  TYPES: [
+    "inquiry_created",
+    "message_received",
+    "booking_created",
+    "booking_confirmed",
+    "booking_rejected",
+    "offer_created",
+    "offer_accepted",
+    "offer_rejected",
+    "property_assigned",
+    "property_approved",
+    "property_published",
+  ],
+  CATEGORIES: ["communication", "booking", "offer", "property", "workflow", "system"],
+  PRIORITIES: ["low", "normal", "high", "urgent"],
+  RESOURCE_TYPES: ["property", "inquiry", "booking", "offer", "conversation", "message"],
+};
+
 module.exports = {
   ROLES,
   PROPERTY_TYPES,
+  COMMUNICATION,
+  NOTIFICATION,
 };

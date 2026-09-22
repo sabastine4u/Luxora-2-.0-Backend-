@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 // Import the Inquiry model used to persist real property inquiries.
 const Inquiry = require("../models/inquiry.model");
+const Conversation = require("../models/conversation.model");
 
 // Import Property so Agency, Agent, and Owner relationships come from the listing.
 const Property = require("../models/property.model");
@@ -14,12 +15,52 @@ const Agent = require("../models/agent.model");
 
 // Import the shared application error helper.
 const AppError = require("../utils/AppError");
+const eventBus = require("../events/event-bus");
+const EVENTS = require("../events/events");
+const { COMMUNICATION } = require("../config/constants");
+const conversationService = require("./conversation.service");
+const messageService = require("./message.service");
+
+const emitInquiryCreated = async (inquiry, authenticatedUser = null) => {
+  await eventBus.emitSafe(EVENTS.INQUIRY_CREATED, {
+    eventId: `inquiry:${inquiry._id}:created`,
+    inquiryId: String(inquiry._id),
+    actorId: authenticatedUser?._id ? String(authenticatedUser._id) : null,
+  });
+};
+
+const sameDate = (left, right) => {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return new Date(left).getTime() === new Date(right).getTime();
+};
+
+const matchesIdempotentInquiry = (inquiry, values) => (
+  String(inquiry.property) === String(values.propertyId) &&
+  inquiry.fullName === values.fullName &&
+  inquiry.email === values.email &&
+  inquiry.phone === values.phone &&
+  inquiry.message === values.message &&
+  inquiry.source === values.source &&
+  sameDate(inquiry.preferredDate, values.preferredDate) &&
+  (inquiry.preferredTime || null) === values.preferredTime
+);
+
+const requireIdempotencyKey = (idempotencyKey) => {
+  if (typeof idempotencyKey !== "string" || !idempotencyKey.trim()) {
+    throw new AppError("X-Idempotency-Key is required for authenticated inquiries", 400);
+  }
+
+  const value = idempotencyKey.trim();
+  if (value.length > 255) {
+    throw new AppError("X-Idempotency-Key cannot exceed 255 characters", 400);
+  }
+
+  return value;
+};
 
 // Create a new property inquiry from the public Contact Agent workflow.
-const createInquiry = async (
-  inquiryData = {},
-  authenticatedUser = null,
-) => {
+const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempotencyKey = null) => {
   // Read only the fields that the seeker is allowed to submit.
   const {
     propertyId,
@@ -70,54 +111,117 @@ const createInquiry = async (
     );
   }
 
-  // Only published Properties should receive public inquiries.
-  const property = await Property.findOne({
-    _id: propertyId,
-    status: "Published",
-  }).select(
-    "_id title agency agent owner status",
-  );
-
-  // Stop when the Property is missing or is not currently public.
-  if (!property) {
-    throw new AppError(
-      "Property not found or is not currently published",
-      404,
-    );
-  }
-
-  // Build trusted relationship data from the Property itself.
-  const inquiryPayload = {
-    property: property._id,
-    agency: property.agency || null,
-    agent: property.agent || null,
-    owner: property.owner || null,
-
-    // Attach the authenticated seeker when one exists.
-    inquirer:
-      authenticatedUser?._id || null,
-
-    // Store normalized contact details.
+  const values = {
+    propertyId: String(propertyId),
     fullName: fullName.trim(),
     email: email.trim().toLowerCase(),
     phone: phone.trim(),
     message: message.trim(),
-
-    // Store the validated inquiry workflow values.
     source,
-    preferredDate:
-      preferredDate || null,
-    preferredTime:
-      preferredTime?.trim() || null,
+    preferredDate: preferredDate ? new Date(preferredDate) : null,
+    preferredTime: preferredTime?.trim() || null,
   };
+  const { propertyId: _propertyId, ...inquiryValues } = values;
 
-  // Persist the inquiry as a real MongoDB record.
-  const inquiry = await Inquiry.create(
-    inquiryPayload,
+  // Anonymous submissions retain the existing persistence and notification
+  // behavior without a Conversation or an initial authenticated Message.
+  if (!authenticatedUser?._id) {
+    const property = await Property.findOne({ _id: propertyId, status: "Published" })
+      .select("_id title agency agent owner status");
+    if (!property) {
+      throw new AppError("Property not found or is not currently published", 404);
+    }
+
+    const inquiry = await Inquiry.create({
+      property: property._id,
+      agency: property.agency || null,
+      agent: property.agent || null,
+      owner: property.owner || null,
+      inquirer: null,
+      ...inquiryValues,
+    });
+    await emitInquiryCreated(inquiry);
+    return inquiry;
+  }
+
+  const key = requireIdempotencyKey(idempotencyKey);
+  let inquiry = await Inquiry.findOne({
+    inquirer: authenticatedUser._id,
+    idempotencyKey: key,
+  });
+  let inquiryCreated = false;
+
+  if (inquiry && !matchesIdempotentInquiry(inquiry, values)) {
+    throw new AppError("This idempotency key has already been used for a different inquiry request", 409);
+  }
+
+  if (!inquiry) {
+    const property = await Property.findOne({ _id: propertyId, status: "Published" })
+      .select("_id title agency agent owner status");
+    if (!property) {
+      throw new AppError("Property not found or is not currently published", 404);
+    }
+
+    try {
+      inquiry = await Inquiry.create({
+        property: property._id,
+        agency: property.agency || null,
+        agent: property.agent || null,
+        owner: property.owner || null,
+        inquirer: authenticatedUser._id,
+        idempotencyKey: key,
+        ...inquiryValues,
+      });
+      inquiryCreated = true;
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+
+      inquiry = await Inquiry.findOne({ inquirer: authenticatedUser._id, idempotencyKey: key });
+      if (!inquiry) throw error;
+      if (!matchesIdempotentInquiry(inquiry, values)) {
+        throw new AppError("This idempotency key has already been used for a different inquiry request", 409);
+      }
+    }
+  }
+
+  // Capture any durable inquiry thread before recovery.  This makes the
+  // creation flag accurately represent a message-only recovery.
+const existingInquiryConversation = await Conversation.findOne({
+  inquiry: inquiry._id,
+}).select("_id").lean();
+
+const conversationExistedBefore = Boolean(
+  existingInquiryConversation?._id
+);
+
+const { conversation } = await conversationService.createConversation(
+  authenticatedUser,
+  {
+    type: COMMUNICATION.CONVERSATION_TYPES.PROPERTY_INQUIRY,
+    inquiryId: String(inquiry._id),
+  },
+);
+  const initialMessage = await messageService.createOrGetInitialMessage(
+    authenticatedUser,
+    conversation._id,
+    { type: "text", body: inquiry.message },
+    `inquiry:${inquiry._id}:initial-message`,
   );
 
-  // Return the newly created inquiry.
-  return inquiry;
+  // A retry may re-emit safely: NotificationService's deterministic dedupe
+  // prevents duplicate persistence and therefore duplicate realtime delivery.
+  await emitInquiryCreated(inquiry, authenticatedUser);
+
+  return {
+    inquiry,
+    conversation,
+    initialMessage: initialMessage.message,
+    created: {
+      inquiry: inquiryCreated,
+     conversation: !conversationExistedBefore,
+      initialMessage: initialMessage.created,
+    },
+  };
 };
 
 // Retrieve all inquiries belonging to the authenticated Agency.
