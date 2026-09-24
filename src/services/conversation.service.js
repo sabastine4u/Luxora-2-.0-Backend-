@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Conversation = require("../models/conversation.model");
+const User = require("../models/user.model");
 const AppError = require("../utils/AppError");
 const { COMMUNICATION } = require("../config/constants");
 const {
@@ -12,6 +13,23 @@ const { toIdString } = require("./communication-context.service");
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
+
+const toParticipantDisplay = (user) => ({
+  userId: String(user._id),
+  name: user.fullName,
+  avatar: user.avatar || null,
+  role: user.role,
+});
+
+const toConversationResponse = async (conversation) => {
+  await conversation.populate({ path: "participants", select: "fullName avatar role" });
+  const value = conversation.toObject();
+  return {
+    ...value,
+    participants: value.participants.map((participant) => String(participant._id)),
+    participantDisplays: conversation.participants.map(toParticipantDisplay),
+  };
+};
 
 const getPagination = (query = {}) => {
   const page = Math.max(Number.parseInt(query.page, 10) || DEFAULT_PAGE, 1);
@@ -106,14 +124,39 @@ const createPropertyInquiryConversation = async (user, inquiryId) => {
 };
 
 const createConversation = async (user, payload = {}) => {
-  if (payload.type !== COMMUNICATION.CONVERSATION_TYPES.PROPERTY_INQUIRY) {
-    throw new AppError(
-      "Only property inquiry conversations are supported at this stage",
-      400,
-    );
+  if (payload.type === COMMUNICATION.CONVERSATION_TYPES.PROPERTY_INQUIRY) {
+    return createPropertyInquiryConversation(user, payload.inquiryId);
   }
-
-  return createPropertyInquiryConversation(user, payload.inquiryId);
+  if (payload.type === COMMUNICATION.CONVERSATION_TYPES.DIRECT) {
+    if (
+      !mongoose.isValidObjectId(payload.targetUserId)
+      || String(payload.targetUserId) === String(user._id)
+    ) {
+      throw new AppError("A different valid user is required", 400);
+    }
+    const target = await User.findById(payload.targetUserId).select("_id isActive");
+    if (!target || !target.isActive) {
+      throw new AppError("Message recipient is unavailable", 404);
+    }
+    const participants = [user._id, target._id].sort((left, right) =>
+      String(left).localeCompare(String(right)),
+    );
+    const existing = await Conversation.findOne({
+      type: COMMUNICATION.CONVERSATION_TYPES.DIRECT,
+      participants: { $all: participants, $size: 2 },
+      status: COMMUNICATION.CONVERSATION_STATUSES.ACTIVE,
+    });
+    if (existing) return { conversation: existing, created: false };
+    const conversation = await Conversation.create({
+      type: COMMUNICATION.CONVERSATION_TYPES.DIRECT,
+      participants,
+      participantState: participants.map((participant) => ({ user: participant })),
+      createdBy: user._id,
+      status: COMMUNICATION.CONVERSATION_STATUSES.ACTIVE,
+    });
+    return { conversation, created: true };
+  }
+  throw new AppError("Unsupported conversation type", 400);
 };
 
 const getConversationsForUser = async (user, query = {}) => {
@@ -164,7 +207,7 @@ const getConversationsForUser = async (user, query = {}) => {
   const conversations = authorizedConversations.slice(skip, skip + limit);
 
   return {
-    conversations,
+    conversations: await Promise.all(conversations.map(toConversationResponse)),
     pagination: {
       page,
       limit,
@@ -218,4 +261,5 @@ module.exports = {
   getAuthorizedConversation,
   getConversationsForUser,
   unarchiveConversationForUser,
+  toConversationResponse,
 };

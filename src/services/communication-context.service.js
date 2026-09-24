@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Inquiry = require("../models/inquiry.model");
 const Agent = require("../models/agent.model");
 const Agency = require("../models/agency.model");
+const User = require("../models/user.model");
 const AppError = require("../utils/AppError");
 
 const toIdString = (value) => {
@@ -53,10 +54,28 @@ const resolveInquiryContext = async (inquiryId) => {
 
   // An Inquiry may legitimately be created before a Property has an Agent or
   // Agency.  Return the resolved context without inventing an account link.
-  const agentUserId = agent?.user || null;
-  const agencyUserId = agency?.user || null;
-  const ownerUserId = inquiry.owner || null;
-  const inquirerUserId = inquiry.inquirer || null;
+  // References can outlive a disabled or deleted account. Only a real active
+  // User account can be made a chat participant.
+  const candidateUserIds = uniqueIds([
+    agent?.user,
+    agency?.user,
+    inquiry.owner,
+    inquiry.inquirer,
+  ]);
+  const activeUsers = await User.find({
+    _id: { $in: candidateUserIds },
+    isActive: true,
+  }).select("_id").lean();
+  const activeUserIds = new Set(activeUsers.map((user) => String(user._id)));
+  const activeUserId = (value) => {
+    const id = toIdString(value);
+    return id && activeUserIds.has(id) ? id : null;
+  };
+
+  const agentUserId = activeUserId(agent?.user);
+  const agencyUserId = activeUserId(agency?.user);
+  const ownerUserId = activeUserId(inquiry.owner);
+  const inquirerUserId = activeUserId(inquiry.inquirer);
 
   return {
     inquiry,
@@ -67,11 +86,9 @@ const resolveInquiryContext = async (inquiryId) => {
     agencyUserId,
     ownerUserId,
     inquirerUserId,
-    // The first vertical slice deliberately excludes the Owner from automatic
-    // chat participation.  The Owner remains business context and can receive
-    // future workflow-specific access only through an explicit policy.
     conversationParticipantUserIds: uniqueIds([
       inquirerUserId,
+      ownerUserId,
       agentUserId,
       agencyUserId,
     ]),

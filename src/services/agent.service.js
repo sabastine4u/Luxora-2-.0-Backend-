@@ -31,10 +31,16 @@ const buildPublicAgentSummary = async (agent) => {
       .lean(),
   ]);
 
-  return {
-    id: agent._id,
-    slug: slugify(agent.fullName),
-    name: agent.fullName,
+ return {
+  id: agent._id,
+  userId:
+    agent.user && typeof agent.user === 'object'
+      ? String(agent.user._id)
+      : agent.user
+        ? String(agent.user)
+        : null,
+  slug: slugify(agent.fullName),
+  name: agent.fullName,
     email: agent.email,
     phone: agent.phone || null,
 

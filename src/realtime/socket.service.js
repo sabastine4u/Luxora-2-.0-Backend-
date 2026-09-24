@@ -99,8 +99,34 @@ const publishNotification = (notification) => {
   }
 };
 
+// Messages are persisted and authorized before this best-effort delivery
+// seam is reached. Recipients are derived by the message event listener,
+// never from a socket client.
+const publishMessage = ({ message, conversationId, recipientUserIds } = {}) => {
+  if (!io) {
+    console.warn("Realtime message delivery skipped: Socket.IO is not initialized");
+    return false;
+  }
+
+  try {
+    if (!message?._id || !conversationId || !Array.isArray(recipientUserIds)) {
+      throw new Error("Normalized message, conversation ID, and recipients are required");
+    }
+
+    const payload = { message, conversationId: String(conversationId) };
+    [...new Set(recipientUserIds.map(String).filter(Boolean))].forEach((userId) => {
+      io.to(getUserRoom(userId)).emit("message:new", payload);
+    });
+    return true;
+  } catch (error) {
+    console.error("Realtime message delivery failed:", error);
+    return false;
+  }
+};
+
 module.exports = {
   getUserRoom,
   initializeSocketServer,
+  publishMessage,
   publishNotification,
 };

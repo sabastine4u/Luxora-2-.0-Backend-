@@ -105,9 +105,12 @@ const buildPublicAgencySummary = async (agency) => {
     ),
   );
 
-  return {
-    id: agency._id,
-    name: agency.name,
+ return {
+  id: agency._id,
+  userId: agency.user
+    ? String(agency.user)
+    : null,
+  name: agency.name,
     contactPerson: agency.contactPerson,
     email: agency.email,
     phone: agency.phone || null,

@@ -1,4 +1,5 @@
 const messageService = require("../services/message.service");
+const conversationService = require("../services/conversation.service");
 const api = require("../utils/api-response");
 const AppError = require("../utils/AppError");
 const { sendMessageSchema } = require("../validators/message.validator");
@@ -50,7 +51,7 @@ exports.markConversationRead = async (req, res, next) => {
       req.params.conversationId,
     );
 
-    return api.success(res, { conversation }, "Conversation marked as read");
+    return api.success(res, { conversation: await conversationService.toConversationResponse(conversation) }, "Conversation marked as read");
   } catch (error) {
     return next(error);
   }

@@ -45,7 +45,6 @@ const messageSchema = new mongoose.Schema(
     // deliberately do not accept this field.
     dedupeKey: {
       type: String,
-      default: null,
       trim: true,
       maxlength: [255, "Message dedupe key cannot exceed 255 characters"],
     },
@@ -68,6 +67,9 @@ const messageSchema = new mongoose.Schema(
 
 // Supports stable newest-first conversation history pagination.
 messageSchema.index({ conversation: 1, createdAt: -1, _id: -1 });
-messageSchema.index({ conversation: 1, dedupeKey: 1 }, { unique: true, sparse: true });
+messageSchema.index(
+  { conversation: 1, dedupeKey: 1 },
+  { unique: true, partialFilterExpression: { dedupeKey: { $type: "string" } } },
+);
 
 module.exports = mongoose.model("Message", messageSchema);

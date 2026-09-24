@@ -23,7 +23,7 @@ exports.getConversation = async (req, res, next) => {
       req.params.conversationId,
     );
 
-    return api.success(res, { conversation }, "Conversation retrieved successfully");
+    return api.success(res, { conversation: await conversationService.toConversationResponse(conversation) }, "Conversation retrieved successfully");
   } catch (error) {
     return next(error);
   }
@@ -50,7 +50,7 @@ exports.createConversation = async (req, res, next) => {
 
     return api.success(
       res,
-      { conversation, created },
+      { conversation: await conversationService.toConversationResponse(conversation), created },
       created ? "Conversation created successfully" : "Conversation retrieved successfully",
       created ? 201 : 200,
     );
@@ -66,7 +66,7 @@ exports.archiveConversation = async (req, res, next) => {
       req.params.conversationId,
     );
 
-    return api.success(res, { conversation }, "Conversation archived successfully");
+    return api.success(res, { conversation: await conversationService.toConversationResponse(conversation) }, "Conversation archived successfully");
   } catch (error) {
     return next(error);
   }
@@ -79,7 +79,7 @@ exports.unarchiveConversation = async (req, res, next) => {
       req.params.conversationId,
     );
 
-    return api.success(res, { conversation }, "Conversation restored successfully");
+    return api.success(res, { conversation: await conversationService.toConversationResponse(conversation) }, "Conversation restored successfully");
   } catch (error) {
     return next(error);
   }

@@ -4,10 +4,27 @@ const Conversation = require("../models/conversation.model");
 const AppError = require("../utils/AppError");
 const { getAuthorizedConversation } = require("./conversation.service");
 const { toIdString } = require("./communication-context.service");
+const eventBus = require("../events/event-bus");
+const EVENTS = require("../events/events");
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
+
+const toMessageResponse = async (message) => {
+  await message.populate({ path: "sender", select: "fullName avatar role" });
+  const value = message.toObject();
+  return {
+    ...value,
+    sender: String(value.sender._id),
+    senderDisplay: {
+      userId: String(value.sender._id),
+      name: value.sender.fullName,
+      avatar: value.sender.avatar || null,
+      role: value.sender.role,
+    },
+  };
+};
 
 const getPagination = (query = {}) => {
   const page = Math.max(Number.parseInt(query.page, 10) || DEFAULT_PAGE, 1);
@@ -50,7 +67,7 @@ const getMessagesForConversation = async (user, conversationId, query = {}) => {
   ]);
 
   return {
-    messages,
+    messages: await Promise.all(messages.map(toMessageResponse)),
     pagination: {
       page,
       limit,
@@ -105,7 +122,18 @@ const sendMessage = async (user, conversationId, payload = {}) => {
     throw new AppError("Conversation is no longer available", 409);
   }
 
-  return { message, conversation: updatedConversation };
+  const { toConversationResponse } = require("./conversation.service");
+  const normalizedMessage = await toMessageResponse(message);
+  const normalizedConversation = await toConversationResponse(updatedConversation);
+
+  // Realtime is incremental and best-effort. Persistence and the REST
+  // response remain successful even when a listener or Socket.IO is offline.
+  void eventBus.emitSafe(EVENTS.MESSAGE_CREATED, {
+    message: normalizedMessage,
+    conversationId: String(updatedConversation._id),
+  });
+
+  return { message: normalizedMessage, conversation: normalizedConversation };
 };
 
 const syncConversationPreview = async (conversation, message) => {
@@ -200,4 +228,5 @@ module.exports = {
   getMessagesForConversation,
   markConversationRead,
   sendMessage,
+  toMessageResponse,
 };
