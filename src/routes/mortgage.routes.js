@@ -5,6 +5,8 @@ const express = require("express");
 const {
   createMortgageApplicationController,
   getMyMortgageApplicationsController,
+  getMortgageOperationsController,
+processMortgageApplicationController,
 } = require("../controllers/mortgage.controller");
 
 // Import the authentication and role middleware used by protected Buyer routes.
@@ -15,6 +17,29 @@ const { ROLES } = require("../config/constants");
 
 // Create a router for Mortgage Application endpoints.
 const router = express.Router();
+
+
+router.get(
+  "/operations",
+  protect,
+  restrictTo(
+    ROLES.FINANCE,
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ),
+  getMortgageOperationsController,
+);
+
+router.patch(
+  "/:mortgageId/workflow",
+  protect,
+  restrictTo(
+    ROLES.FINANCE,
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ),
+  processMortgageApplicationController,
+);
 
 // Allow only authenticated Buyers to retrieve their Mortgage Applications.
 router.get(

@@ -7,9 +7,99 @@ const Property = require("../models/property.model");
 // Import the Agent model so Agent Users can be resolved to their Agent profile.
 const Agent = require("../models/agent.model");
 
+const Deal = require("../models/deal.model");
+
 // Import AppError so predictable business-rule failures use the project's
 // existing centralized error handling.
 const AppError = require("../utils/AppError");
+
+
+// Create the transaction Deal for an accepted Offer.
+//
+// This helper is intentionally idempotent:
+// retrying the same Offer acceptance must not create
+// duplicate Deals.
+const createDealFromAcceptedOffer = async (offer) => {
+  // The accepted Offer must contain its Property context.
+  if (!offer?.property?._id) {
+    throw new AppError(
+      "The accepted offer is missing its property context.",
+      500,
+    );
+  }
+
+  // Check whether this Offer already created a Deal.
+  const existingDeal = await Deal.findOne({
+    offer: offer._id,
+  });
+
+  // If the Deal already exists, return it instead of creating another one.
+  if (existingDeal) {
+    return existingDeal;
+  }
+
+  // Only one active Deal should exist for a Property at a time.
+  const existingPropertyDeal = await Deal.findOne({
+    property: offer.property._id,
+    status: {
+      $nin: ["Cancelled", "Completed"],
+    },
+  });
+
+  // Prevent a second accepted Offer from creating another active Deal
+  // for the same Property.
+  if (
+    existingPropertyDeal &&
+    String(existingPropertyDeal.offer) !== String(offer._id)
+  ) {
+    throw new AppError(
+      "Another active Deal already exists for this property.",
+      409,
+    );
+  }
+
+  // When an Owner counter offer was accepted, the counter amount
+  // is the agreed transaction value.
+  //
+  // Otherwise, the original Buyer offer is the agreed value.
+  const agreedAmount =
+    typeof offer.counterOfferAmount === "number" &&
+    offer.counterOfferAmount > 0
+      ? offer.counterOfferAmount
+      : offer.offerAmount;
+
+  // Generate a deterministic Deal reference from the Offer ID.
+  const dealId = `DEAL-${String(offer._id)
+    .slice(-8)
+    .toUpperCase()}`;
+
+  // Create the Deal from trusted backend relationships.
+  const deal = await Deal.create({
+    dealId,
+    offer: offer._id,
+    property: offer.property._id,
+    buyer: offer.buyer,
+    owner: offer.property.owner || null,
+    agency: offer.agency || offer.property.agency || null,
+    agent: offer.agent || offer.property.agent || null,
+    transactionType: offer.property.transactionType,
+    agreedAmount,
+    status: "Agreement Pending",
+    agreementStatus: "Pending",
+    paymentStatus: "Pending",
+  });
+
+  // Move the Property into the transaction stage.
+  //
+  // This also prevents another Buyer from creating a new offer
+  // through the existing createOffer availability checks.
+  offer.property.status = "Under Offer";
+  offer.property.availabilityStatus = "Unavailable";
+
+  await offer.property.save();
+
+  return deal;
+};
 
 // Create a new purchase offer for the authenticated Buyer.
 const createOffer = async (buyerId, offerData) => {
@@ -179,14 +269,22 @@ const acceptOffer = async (ownerId, offerId) => {
     );
   }
 
-  // Mark the Offer as accepted.
-  offer.status = "Accepted";
+// Mark the Offer as accepted.
+offer.status = "Accepted";
 
-  // Save the updated Offer to MongoDB.
-  await offer.save();
+// Save the updated Offer to MongoDB.
+await offer.save();
 
-  // Return the updated Offer with its related Property populated.
-  return Offer.findById(offer._id)
+// Create the transaction Deal and move the Property into
+// the Under Offer stage.
+//
+// The helper is idempotent, so a repeated request for the
+// same Offer will reuse the existing Deal.
+await createDealFromAcceptedOffer(offer);
+
+// Return the updated Offer with its related Property populated.
+return Offer.findById(offer._id)
+
     .populate("property")
     .populate("buyer", "fullName email phone");
 };
@@ -325,14 +423,23 @@ const acceptCounterOffer = async (buyerId, offerId) => {
     );
   }
 
-  // Accept the Owner's counter offer.
-  offer.status = "Accepted";
+ // Accept the Owner's counter offer.
+offer.status = "Accepted";
 
-  // Save the updated Offer.
-  await offer.save();
+// Save the updated Offer.
+await offer.save();
 
-  // Return the updated Offer with its related records populated.
-  return Offer.findById(offer._id)
+// Create the transaction Deal.
+//
+// Because the Owner's counter amount is still stored on the Offer,
+// createDealFromAcceptedOffer() will use that amount as the
+// agreed transaction value.
+await createDealFromAcceptedOffer(
+  await Offer.findById(offer._id).populate("property"),
+);
+
+// Return the updated Offer with its related records populated.
+return Offer.findById(offer._id)
     .populate("property")
     .populate("buyer", "fullName email phone");
 };

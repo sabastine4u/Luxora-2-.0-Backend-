@@ -28,6 +28,14 @@ router.get(
   propertyController.getOwnerProperties,
 );
 
+// Allow the authenticated Owner to withdraw their own active Property request.
+router.patch(
+  "/owner/properties/:propertyId/withdraw",
+  protect,
+  restrictTo(ROLES.OWNER),
+  propertyController.withdrawOwnerProperty,
+);
+
 // Allow an authenticated Agency to retrieve Properties assigned to its Agency.
 router.get(
   "/agency/properties",
@@ -82,6 +90,8 @@ router.get(
   propertyController.getProperties,
 );
 
+
+
 // Allow Admin and Super Admin users to assign a Property to an Agency.
 // The service layer performs the final role and business-rule checks.
 router.patch(
@@ -97,6 +107,7 @@ router.patch(
   restrictTo(ROLES.AGENCY),
   propertyController.declinePropertyForAgency,
 );
+
 
 // Allow only Admin and Super Admin users to assign the operational manager.
 // The Property service repeats the authorization and validates the target User.
@@ -126,6 +137,14 @@ router.patch(
 router.post(
   "/properties/:id/view",
   propertyController.recordPropertyView,
+);
+
+// Allow the authenticated Owner to attach uploaded documents to their own Property.
+router.patch(
+  "/properties/:propertyId/documents",
+  protect,
+  restrictTo(ROLES.OWNER),
+  propertyController.addOwnerPropertyDocuments,
 );
 
 // Retrieve one published Property for the public Property Details page.

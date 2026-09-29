@@ -696,6 +696,19 @@ const propertySchema = new mongoose.Schema(
       default: "Draft",
     },
 
+    // Record when an Owner withdraws a Property submission.
+withdrawnAt: {
+  type: Date,
+  default: null,
+},
+
+// Record which authenticated User withdrew the Property submission.
+withdrawnBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  default: null,
+},
+
     // Store the date on which the property is expected to become available.
     availabilityDate: {
       type: Date,

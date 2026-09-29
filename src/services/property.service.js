@@ -165,6 +165,160 @@ const getOwnerProperties = async (authenticatedUser) => {
   return properties;
 };
 
+
+// Attach uploaded document references to an Owner's Property.
+const addOwnerPropertyDocuments = async (
+  propertyId,
+  documents,
+  authenticatedUser,
+) => {
+  // Ensure a valid authenticated user was provided.
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError(
+      "Authenticated user information is required",
+      401,
+    );
+  }
+
+  // Only Owners can attach documents through the Owner dashboard workflow.
+  if (authenticatedUser.role !== "Owner") {
+    throw new AppError(
+      "Only Owners can upload documents for their property requests",
+      403,
+    );
+  }
+
+  // Find the Property and make sure it belongs to the authenticated Owner.
+  const property = await Property.findOne({
+    _id: propertyId,
+    owner: authenticatedUser._id,
+  });
+
+  if (!property) {
+    throw new AppError("Property not found", 404);
+  }
+
+  // Owner documents are part of the submission/review stages only.
+  if (!["Draft", "Pending Review"].includes(property.status)) {
+    throw new AppError(
+      "Documents can only be added while the property is in Draft or Pending Review status",
+      409,
+    );
+  }
+
+  // Require at least one document reference from the authenticated upload flow.
+  if (!Array.isArray(documents) || documents.length === 0) {
+    throw new AppError(
+      "At least one document is required",
+      400,
+    );
+  }
+
+  // Validate every document before changing the stored Property.
+  const normalizedDocuments = documents.map(
+    (document, index) => {
+      const title = String(
+        document?.title || "",
+      ).trim();
+
+      const url = String(
+        document?.url || "",
+      ).trim();
+
+      if (!title || !url) {
+        throw new AppError(
+          `Document ${index + 1} must include a title and URL`,
+          400,
+        );
+      }
+
+      return {
+        title,
+        url,
+        verified: false,
+        uploadedAt: new Date(),
+      };
+    },
+  );
+
+  // Append the newly uploaded documents to the Property's existing document set.
+  property.documents.push(
+    ...normalizedDocuments,
+  );
+
+  // Save the Property so the Owner dashboard and verification workflow can read the documents later.
+  await property.save();
+
+  // Return the updated Property record.
+  return property;
+};
+
+// Withdraw an Owner-submitted Property request without deleting its database record.
+const withdrawOwnerProperty = async (
+  propertyId,
+  authenticatedUser,
+) => {
+  // Only an authenticated Owner can perform this workflow action.
+  if (
+    !authenticatedUser?._id ||
+    authenticatedUser.role !== "Owner"
+  ) {
+    throw new AppError(
+      "Only Owners can withdraw their property requests",
+      403,
+    );
+  }
+
+  // Find only a Property that belongs to the authenticated Owner
+  // and originated from the Owner submission workflow.
+  const property = await Property.findOne({
+    _id: propertyId,
+    owner: authenticatedUser._id,
+    origin: "owner",
+  });
+
+  if (!property) {
+    throw new AppError("Property not found", 404);
+  }
+
+  // A withdrawn request cannot be withdrawn again.
+  if (property.status === "Archived") {
+    throw new AppError(
+      "This property request has already been withdrawn",
+      409,
+    );
+  }
+
+  // Do not allow withdrawal after the listing has already become
+  // a live marketplace property.
+  const withdrawableStatuses = [
+    "Draft",
+    "Pending Review",
+  ];
+
+  if (
+    !withdrawableStatuses.includes(
+      property.status,
+    )
+  ) {
+    throw new AppError(
+      "This property request can no longer be withdrawn at its current stage",
+      409,
+    );
+  }
+
+  // Archive the record rather than deleting it so Luxora keeps
+  // the original submission for audit/history purposes.
+  property.status = "Archived";
+  property.withdrawnAt = new Date();
+  property.withdrawnBy =
+    authenticatedUser._id;
+
+  await property.save();
+
+  return property;
+};
+
 // Fetch one publicly visible Property by its MongoDB ID.
 const getPropertyById = async (propertyId) => {
   // Find the Property only when it has been published to the marketplace.
@@ -1143,6 +1297,8 @@ module.exports = {
   createProperty,
   getProperties,
   getOwnerProperties,
+  withdrawOwnerProperty,
+  addOwnerPropertyDocuments,
   getAgencyProperties,
   getPropertyById,
   recordPropertyView,

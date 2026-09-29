@@ -2,13 +2,15 @@
 const {
   createMortgageApplication,
   getMortgageApplicationsByBuyer,
+  getMortgageApplicationsForOperations,
+  processMortgageApplication,
 } = require("../services/mortgage.service");
 
 // Import the Joi schema used to validate Mortgage Application requests.
 const {
   createMortgageApplicationSchema,
+  mortgageWorkflowSchema,
 } = require("../validators/mortgage.validator");
-
 // Create a Mortgage Application for the authenticated Buyer.
 const createMortgageApplicationController = async (req, res, next) => {
   try {
@@ -67,8 +69,67 @@ const getMyMortgageApplicationsController = async (req, res, next) => {
   }
 };
 
+const getMortgageOperationsController = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const result =
+      await getMortgageApplicationsForOperations(
+        req.query,
+      );
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const processMortgageApplicationController = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const { error, value } =
+      mortgageWorkflowSchema.validate(
+        req.body,
+        {
+          abortEarly: false,
+          stripUnknown: true,
+        },
+      );
+
+    if (error) {
+      return next(error);
+    }
+
+    const application =
+      await processMortgageApplication(
+        req.params.mortgageId,
+        value,
+        req,
+      );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Mortgage application workflow updated successfully.",
+      application,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 // Export the Mortgage controller functions for the routes.
 module.exports = {
   createMortgageApplicationController,
   getMyMortgageApplicationsController,
+  getMortgageOperationsController,
+  processMortgageApplicationController,
 };

@@ -17,6 +17,14 @@ const mortgageStageSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Record the internal user who completed this stage.
+completedBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  default: null,
+},
+
+
     // Track whether the stage has been completed.
     completed: {
       type: Boolean,
@@ -122,6 +130,27 @@ const mortgageApplicationSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Store the internal user who rejected the application, when applicable.
+rejectedBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  default: null,
+},
+
+// Store when the application was rejected.
+rejectedAt: {
+  type: Date,
+  default: null,
+},
+
+// Store the reason supplied by the Finance reviewer when rejecting.
+rejectionReason: {
+  type: String,
+  trim: true,
+  default: "",
+},
+
   },
   {
     // Automatically maintain createdAt and updatedAt.

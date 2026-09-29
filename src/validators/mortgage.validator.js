@@ -34,7 +34,63 @@ const createMortgageApplicationSchema = Joi.object({
     .default(null),
 });
 
+// Define the workflow action contract used by Finance operations.
+const mortgageWorkflowSchema = Joi.object({
+  action: Joi.string()
+    .valid(
+      "start_verification",
+      "complete_verification",
+      "approve",
+      "reject",
+      "disburse",
+    )
+    .required(),
+
+  approvedLoanAmount: Joi.number()
+    .positive()
+    .when("action", {
+      is: "approve",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+
+  interestRate: Joi.number()
+    .min(0)
+    .when("action", {
+      is: "approve",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+
+  loanTermYears: Joi.number()
+    .integer()
+    .min(1)
+    .when("action", {
+      is: "approve",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+
+  monthlyPayment: Joi.number()
+    .positive()
+    .when("action", {
+      is: "approve",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+
+  rejectionReason: Joi.string()
+    .trim()
+    .max(2000)
+    .when("action", {
+      is: "reject",
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+});
+
 // Export the Mortgage Application validation schemas.
 module.exports = {
   createMortgageApplicationSchema,
+  mortgageWorkflowSchema,
 };

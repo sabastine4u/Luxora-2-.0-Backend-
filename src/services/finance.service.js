@@ -11,15 +11,60 @@ const list = async (model, filter, query, populate = []) => { const { page, limi
 const amount = (value) => Number(value || 0);
 const financeAudit = { category: { $in: ["Finance", "Payment", "Commission", "Procurement"] } };
 
+const formatAuditDescription = (item) => {
+  const description = item.description || "";
+
+  // Mortgage workflow audit entries may contain legacy MongoDB
+  // ObjectIds in their persisted descriptions. Never expose those
+  // implementation identifiers to Finance users.
+  if (
+    item.targetType === "MortgageApplication" ||
+    String(item.action || "").startsWith(
+      "mortgage.application.",
+    )
+  ) {
+    const target =
+      item.targetName ||
+      "the mortgage application";
+
+    switch (item.action) {
+      case "mortgage.application.verification_started":
+        return `Started document verification for ${target}.`;
+
+      case "mortgage.application.credit_assessment_started":
+        return `Moved ${target} to credit assessment.`;
+
+      case "mortgage.application.approved":
+        return `Approved mortgage application for ${target}.`;
+
+      case "mortgage.application.rejected":
+        return `Rejected mortgage application for ${target}.`;
+
+      case "mortgage.application.disbursed":
+        return `Marked ${target} as disbursed.`;
+
+      default:
+        return description.replace(
+          /\b[a-f\d]{24}\b/gi,
+          target,
+        );
+    }
+  }
+
+  return description;
+};
+
 exports.getOverview = async (query) => {
   const [serviceRevenue, payments, commissions, mortgages, activity] = await Promise.all([
     Service.aggregate([{ $match: { recordType: "transaction", transactionType: "Revenue", transactionStatus: "Completed", ...dates(query) } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
     Payment.aggregate([{ $group: { _id: "$status", total: { $sum: "$amount" } } }]), Commission.aggregate([{ $group: { _id: "$status", pool: { $sum: "$commissionPool" } } }]),
     MortgageApplication.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]), AuditLog.find(financeAudit).sort({ createdAt: -1 }).limit(6).lean(),
   ]);
+
   const payment = Object.fromEntries(payments.map((item) => [item._id, item.total]));
+  
   const pendingCommissions = commissions.filter((item) => ["Pending", "Processing", "Overdue"].includes(item._id)).reduce((sum, item) => sum + amount(item.pool), 0);
-  return { summary: { realizedServiceRevenue: amount(serviceRevenue[0]?.total), ownerPaymentsCollected: amount(payment.Paid), pendingOwnerPayments: amount(payment.Pending) + amount(payment.Overdue), paidCommissionObligations: amount(commissions.find((item) => item._id === "Paid")?.pool), pendingCommissionObligations: pendingCommissions, activeMortgageApplications: mortgages.filter((item) => !["Rejected", "Cancelled", "Disbursed"].includes(item._id)).reduce((sum, item) => sum + item.count, 0) }, recentActivity: activity.map((item) => ({ id: String(item._id), action: item.action, category: item.category, description: item.description, createdAt: item.createdAt })) };
+  return { summary: { realizedServiceRevenue: amount(serviceRevenue[0]?.total), ownerPaymentsCollected: amount(payment.Paid), pendingOwnerPayments: amount(payment.Pending) + amount(payment.Overdue), paidCommissionObligations: amount(commissions.find((item) => item._id === "Paid")?.pool), pendingCommissionObligations: pendingCommissions, activeMortgageApplications: mortgages.filter((item) => !["Rejected", "Cancelled", "Disbursed"].includes(item._id)).reduce((sum, item) => sum + item.count, 0) }, recentActivity: activity.map((item) => ({ id: String(item._id), action: item.action, category: item.category, description: formatAuditDescription(item), createdAt: item.createdAt })) };
 };
 exports.getCounts = async () => {
   const [payments, commissions, mortgageApplications, procurementBudget, auditLogs] = await Promise.all([Payment.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]), Commission.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]), MortgageApplication.countDocuments({ status: { $in: ["Submitted", "Document Verification", "Credit Assessment", "Approved"] } }), Procurement.countDocuments({ recordType: "budget" }), AuditLog.countDocuments(financeAudit)]);
@@ -34,5 +79,5 @@ exports.getAgencyEarnings = commissionsFor("agency"); exports.getAgentCommission
 exports.getMortgageStatistics = async (query) => { const filter = { ...dates(query) }; if (query.status) filter.status = query.status; const result = await list(MortgageApplication, filter, query, [{ path: "buyer", select: "fullName" }, { path: "property", select: "title" }]); const statuses = await MortgageApplication.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]); return { applications: result.records.map((item) => ({ id: String(item._id), applicant: item.buyer?.fullName || "Unknown buyer", lender: item.lender, property: item.property?.title || "", requestedLoanAmount: amount(item.requestedLoanAmount), approvedLoanAmount: amount(item.approvedLoanAmount), interestRate: item.interestRate, status: item.status, createdAt: item.createdAt })), statusCounts: Object.fromEntries(statuses.map((item) => [item._id, item.count])), pagination: result.pagination }; };
 exports.getProcurementBudget = async (query) => { const filter = { recordType: "budget", ...dates(query) }; if (query.status) filter.status = query.status; const result = await list(Procurement, filter, query); return { budgets: result.records.map((item) => ({ id: item.recordId, name: item.name, department: item.department, category: item.category, amount: amount(item.amount), currency: item.currency, status: item.status, dueDate: item.dueDate, createdAt: item.createdAt })), pagination: result.pagination }; };
 exports.getReports = async (query) => ({ generatedAt: new Date(), report: { ...(await exports.getOverview(query)).summary, counts: await exports.getCounts(), note: "Only completed Home Services revenue is reported as realized revenue. Listing prices, offers, mortgage approvals, and procurement budgets are excluded." } });
-exports.getAuditLogs = async (query) => { const result = await list(AuditLog, { ...financeAudit, ...dates(query) }, query, [{ path: "actor", select: "fullName" }]); return { logs: result.records.map((item) => ({ id: String(item._id), action: item.action, category: item.category, description: item.description, actor: item.actor?.fullName || item.actorName, createdAt: item.createdAt })), pagination: result.pagination }; };
+exports.getAuditLogs = async (query) => { const result = await list(AuditLog, { ...financeAudit, ...dates(query) }, query, [{ path: "actor", select: "fullName" }]); return { logs: result.records.map((item) => ({ id: String(item._id), action: item.action, category: item.category, description: formatAuditDescription(item),  actor: item.actor?.fullName || item.actorName, createdAt: item.createdAt })), pagination: result.pagination }; };
 exports.getForecasting = async (query) => { const history = await Service.aggregate([{ $match: { recordType: "transaction", transactionType: "Revenue", transactionStatus: "Completed", transactionDate: { $ne: null }, ...dates(query, "transactionDate") } }, { $group: { _id: { year: { $year: "$transactionDate" }, month: { $month: "$transactionDate" } }, actual: { $sum: "$amount" } } }, { $sort: { "_id.year": 1, "_id.month": 1 } }]); const historical = history.map((item) => ({ period: `${item._id.year}-${String(item._id.month).padStart(2, "0")}`, actual: amount(item.actual) })); if (history.length < 3) return { sufficientData: false, historical, estimates: [] }; const average = historical.reduce((sum, item) => sum + item.actual, 0) / historical.length; return { sufficientData: true, method: "Simple average of completed Home Services revenue months", historical, estimates: [1, 2, 3].map((monthsAhead) => ({ monthsAhead, estimatedRevenue: average })) }; };

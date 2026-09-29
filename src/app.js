@@ -10,6 +10,8 @@ const favoriteRoutes = require("./routes/favorite.routes");
 const bookingRoutes = require("./routes/booking.routes");
 // Import the routes that handle Buyer Offer operations.
 const offerRoutes = require("./routes/offer.routes");
+// Import the Deal routes used by Buyer, Owner, Agent, Agency and oversight dashboards.
+const dealRoutes = require("./routes/deal.routes");
 const managementRoutes =
   require("./routes/management.routes");
 const reportArchiveRoutes = require("./routes/report-archive.routes");
@@ -104,6 +106,9 @@ app.use("/api/v1/favorites", favoriteRoutes);
 app.use("/api/v1/bookings", bookingRoutes);
 // Mount the Buyer Offer routes under the /api/v1/offers endpoint.
 app.use("/api/v1/offers", offerRoutes);
+
+// Mount the Deal API under the versioned /api/v1/deals namespace.
+app.use("/api/v1/deals", dealRoutes);
 // Mount the Owner analytics API.
 app.use("/api/v1/analytics", analyticsRoutes);
 app.use("/api/v1", reportArchiveRoutes);

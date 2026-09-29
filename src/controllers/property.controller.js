@@ -123,6 +123,62 @@ exports.getOwnerProperties = async (req, res, next) => {
   }
 };
 
+// Withdraw a Property request created by the authenticated Owner.
+exports.withdrawOwnerProperty = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const property =
+      await propertyService.withdrawOwnerProperty(
+        req.params.propertyId,
+        req.user,
+      );
+
+    return api.success(
+      res,
+      { property },
+      "Property request withdrawn successfully",
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Attach uploaded documents to a Property owned by the authenticated Owner.
+exports.addOwnerPropertyDocuments = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    // Read the Property ID from the route parameter.
+    const { propertyId } = req.params;
+
+    // Read the uploaded document references returned by the upload endpoint.
+    const { documents } = req.body;
+
+    // Persist the document references through the Property service.
+    const property =
+      await propertyService.addOwnerPropertyDocuments(
+        propertyId,
+        documents,
+        req.user,
+      );
+
+    // Return the updated Property so the frontend can refresh its local state.
+    return api.success(
+      res,
+      { property },
+      "Property documents uploaded successfully",
+    );
+  } catch (error) {
+    // Forward controlled and unexpected errors to the global error handler.
+    next(error);
+  }
+};
+
 // Retrieve one published Property from the public Luxora marketplace.
 exports.getPropertyById = async (req, res, next) => {
   try {

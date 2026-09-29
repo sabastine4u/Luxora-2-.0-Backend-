@@ -53,11 +53,18 @@ if (property.availabilityStatus !== "Available") {
 
 // Get all viewing requests belonging to the authenticated Buyer.
 const getBookingsByBuyer = async (buyerId) => {
-  // Find only bookings created by this Buyer.
   return Booking.find({ buyer: buyerId })
-    // Include the related Property so the dashboard can display its details.
-    .populate("property")
-    // Show the newest viewing requests first.
+    .populate({
+      path: "property",
+      populate: {
+        path: "agent",
+        select: "user status",
+        populate: {
+          path: "user",
+          select: "_id fullName avatar role",
+        },
+      },
+    })
     .sort({ createdAt: -1 });
 };
 
@@ -118,6 +125,14 @@ const rescheduleBooking = async (buyerId, bookingId, rescheduleData) => {
 
   // Update the requested viewing time.
   booking.viewingTime = rescheduleData.viewingTime;
+
+  // Persist the Buyer's reschedule note using the Booking's existing message field.
+if (
+  typeof rescheduleData.message === "string"
+) {
+  booking.message =
+    rescheduleData.message.trim();
+}
 
   // Mark the request as rescheduled.
   booking.status = "Rescheduled";
