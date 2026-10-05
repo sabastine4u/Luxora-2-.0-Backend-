@@ -98,7 +98,7 @@ exports.getProperties = async (req, res, next) => {
       "Properties retrieved successfully",
     );
   } catch (error) {
-    // Pass unexpected errors to the global error handler.
+    // Pass unexpected or service-level errors to the global error handler.
     next(error);
   }
 };
@@ -201,7 +201,7 @@ exports.getPropertyById = async (req, res, next) => {
       "Property retrieved successfully",
     );
   } catch (error) {
-    // Pass unexpected errors to the global error handler.
+    // Pass unexpected or service-level errors to the global error handler.
     next(error);
   }
 };
@@ -352,13 +352,90 @@ exports.getAgencyProperties = async (req, res, next) => {
   }
 };
 
+
+
 // Update a Property belonging to the authenticated Agency.
-exports.updateAgencyProperty = async (req, res, next) => {
+// Update a Property from the authenticated Agency or Agent workflow.
+exports.updateProperty = async (
+  req,
+  res,
+  next,
+) => {
   try {
-    // Delegate the Agency Property update to the service layer.
+    // Read the Property ID from the route.
+    const {
+      propertyId,
+    } = req.params;
+
+    // Agents use the Agent-specific ownership and workflow rules.
+    if (
+      req.user?.role ===
+      "Agent"
+    ) {
+      const property =
+        await propertyService.updateAgentProperty(
+          propertyId,
+          req.body,
+          req.user,
+        );
+
+      return api.success(
+        res,
+        { property },
+        "Agent property updated successfully",
+      );
+    }
+
+    // Agencies continue using the existing Agency workflow.
+    if (
+      req.user?.role ===
+      "Agency"
+    ) {
+      const property =
+        await propertyService.updateAgencyProperty(
+          propertyId,
+          req.body,
+          req.user,
+        );
+
+      return api.success(
+        res,
+        { property },
+        "Agency property updated successfully",
+      );
+    }
+
+    // All other roles are blocked from editing through this endpoint.
+    return next(
+      new AppError(
+        "You do not have permission to update this property",
+        403,
+      ),
+    );
+  } catch (error) {
+    // Forward controlled and unexpected errors.
+    next(error);
+  }
+};
+
+
+// Update a Property through the administrative Property Management workflow.
+exports.updateAdministrativeProperty = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    // Read the Property ID from the route parameter.
+    const {
+      propertyId,
+    } = req.params;
+
+    // Delegate Admin/Super Admin authorization and update logic
+    // to the Property service.
     const property =
-      await propertyService.updateAgencyProperty(
-        req.params.propertyId,
+      await propertyService.updateAdministrativeProperty(
+        propertyId,
         req.body,
         req.user,
       );
@@ -367,10 +444,94 @@ exports.updateAgencyProperty = async (req, res, next) => {
     return api.success(
       res,
       { property },
-      "Agency property updated successfully",
+      "Property updated successfully",
     );
   } catch (error) {
-    // Forward service and unexpected errors to the global error handler.
+    // Forward controlled and unexpected errors to the global error handler.
+    next(error);
+  }
+};
+
+// Delete a Property through the administrative Property Management workflow.
+exports.deleteAdministrativeProperty = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    // Read the Property ID from the route parameter.
+    const {
+      propertyId,
+    } = req.params;
+
+    // Delegate Admin/Super Admin authorization and deletion logic
+    // to the Property service.
+    const result =
+      await propertyService.deleteAdministrativeProperty(
+        propertyId,
+        req.user,
+      );
+
+    // Return the deletion result using the standard API response format.
+    return api.success(
+      res,
+      result,
+      "Property deleted successfully",
+    );
+  } catch (error) {
+    // Forward controlled and unexpected errors to the global error handler.
+    next(error);
+  }
+};
+
+// Archive a Property belonging to the authenticated Agency.
+exports.archiveAgencyProperty = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    // Delegate the Agency archive action to the service layer.
+    const property =
+      await propertyService.archiveAgencyProperty(
+        req.params.propertyId,
+        req.user,
+      );
+
+    // Return the archived Property using the standard API response.
+    return api.success(
+      res,
+      { property },
+      "Agency property archived successfully",
+    );
+  } catch (error) {
+    // Forward controlled and unexpected errors to the global error handler.
+    next(error);
+  }
+};
+
+// Unarchive a Property belonging to the authenticated Agency.
+exports.unarchiveAgencyProperty = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    // Delegate the Agency unarchive action to the service layer.
+    const property =
+      await propertyService.unarchiveAgencyProperty(
+        req.params.propertyId,
+        req.user,
+      );
+
+    // Return the restored Property using the standard API response.
+    return api.success(
+      res,
+      { property },
+      "Agency property unarchived successfully",
+    );
+  } catch (error) {
+    // Forward controlled and unexpected errors to the global error handler.
     next(error);
   }
 };
@@ -420,21 +581,53 @@ exports.getAgentProperties = async (req, res, next) => {
 };
 
 // Retrieve Properties that the authenticated Agent has accepted for active management.
-exports.getAgentListings = async (req, res, next) => {
+exports.getAgentListings = async (
+  req,
+  res,
+  next,
+) => {
   try {
-    // Ask the Property service for the Agent's accepted Listings.
-    const properties = await propertyService.getAgentListings(
-      req.user,
-    );
+    // Ask the Property service for the Agent's accepted Listings
+    // and their real views/saves/offers analytics.
+    const result =
+      await propertyService.getAgentListings(
+        req.user,
+      );
 
-    // Return the accepted Listings using the standard API response format.
+    // Return both the Listings and real listing analytics.
     return api.success(
       res,
-      { properties },
+      result,
       "Agent listings retrieved successfully",
     );
   } catch (error) {
     // Forward controlled and unexpected errors to the global error handler.
+    next(error);
+  }
+};
+
+// Retrieve Properties created by the authenticated Admin or Super Admin.
+// This is the administrative equivalent of the Agent's authenticated listings query.
+// Retrieve Properties created by the authenticated Admin or Super Admin.
+// The service returns both the creator-scoped Properties and their
+// real marketplace analytics.
+exports.getAdministrativeProperties = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const result =
+      await propertyService.getAdministrativeProperties(
+        req.user,
+      );
+
+    return api.success(
+      res,
+      result,
+      "Administrative properties retrieved successfully",
+    );
+  } catch (error) {
     next(error);
   }
 };
@@ -508,14 +701,20 @@ exports.assignPropertyToManager = async (req, res, next) => {
     const { propertyManagerId } = req.body;
 
     if (!propertyManagerId) {
-      return next(new AppError("Property Manager ID is required", 400));
+      return next(
+        new AppError(
+          "Property Manager ID is required",
+          400,
+        ),
+      );
     }
 
-    const property = await propertyService.assignPropertyToManager(
-      propertyId,
-      propertyManagerId,
-      req.user,
-    );
+    const property =
+      await propertyService.assignPropertyToManager(
+        propertyId,
+        propertyManagerId,
+        req.user,
+      );
 
     return api.success(
       res,

@@ -45,6 +45,16 @@ const commissionSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Deal that finalized the transaction.
+// One Deal can produce at most one Commission record.
+deal: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Deal",
+  required: true,
+  unique: true,
+  index: true,
+},
+
     // Final value of the transaction.
     dealValue: {
       type: Number,

@@ -35,6 +35,24 @@ const messageSchema = new mongoose.Schema(
       default: "text",
       required: true,
     },
+    context: {
+  type: {
+    type: String,
+    enum: [
+      "property",
+      "inquiry",
+      "booking",
+      "offer",
+      "deal",
+    ],
+    default: null,
+  },
+
+  resourceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null,
+  },
+},
     body: {
       type: String,
       required: true,

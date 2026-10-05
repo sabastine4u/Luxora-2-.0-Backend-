@@ -124,7 +124,8 @@ const sendMessage = async (user, conversationId, payload = {}) => {
 
   const { toConversationResponse } = require("./conversation.service");
   const normalizedMessage = await toMessageResponse(message);
-  const normalizedConversation = await toConversationResponse(updatedConversation);
+  const normalizedConversation =
+    await toConversationResponse(updatedConversation);
 
   // Realtime is incremental and best-effort. Persistence and the REST
   // response remain successful even when a listener or Socket.IO is offline.
@@ -158,20 +159,206 @@ const syncConversationPreview = async (conversation, message) => {
   return updatedConversation || Conversation.findById(conversation._id);
 };
 
+const createEventMessage = async ({
+  conversationId,
+  senderUserId,
+  body,
+  context,
+  dedupeKey,
+}) => {
+  if (!conversationId || !mongoose.isValidObjectId(conversationId)) {
+    throw new AppError("A valid conversation ID is required", 400);
+  }
+
+  if (!senderUserId || !mongoose.isValidObjectId(senderUserId)) {
+    throw new AppError("A valid event sender is required", 400);
+  }
+
+  if (typeof body !== "string" || !body.trim()) {
+    throw new AppError("Event message body is required", 400);
+  }
+
+  if (body.trim().length > 2000) {
+    throw new AppError("Event message cannot exceed 2000 characters", 400);
+  }
+
+  if (
+    !context ||
+    typeof context !== "object" ||
+    !["property", "inquiry", "booking", "offer", "deal"].includes(context.type)
+  ) {
+    throw new AppError("A valid event context is required", 400);
+  }
+
+  if (!context.resourceId || !mongoose.isValidObjectId(context.resourceId)) {
+    throw new AppError("A valid event context resource is required", 400);
+  }
+
+  const conversation = await Conversation.findById(conversationId);
+
+  if (!conversation) {
+    throw new AppError("Conversation not found", 404);
+  }
+
+  /*
+   * Server-generated events are allowed to originate
+   * from an authenticated actor such as an Agent,
+   * Finance user, Admin, Buyer, or Owner.
+   *
+
+   * The actor does not have to be a participant.
+   * For example, Finance may verify a Deal while the
+   * conversation itself is Buyer ↔ Agent.
+   *
+   * The sender is therefore the authenticated actor,
+   * while the conversation authorization remains
+   * participant-based.
+   */
+
+  const normalizedBody = body.trim();
+
+  const normalizedContext = {
+    type: context.type,
+    resourceId: context.resourceId,
+  };
+
+  if (dedupeKey) {
+    const existingMessage = await Message.findOne({
+      conversation: conversation._id,
+      dedupeKey,
+    });
+
+    if (existingMessage) {
+      const updatedConversation = await syncConversationPreview(
+        conversation,
+        existingMessage,
+      );
+
+      return {
+        message: await toMessageResponse(existingMessage),
+        conversation: updatedConversation,
+        created: false,
+      };
+    }
+  }
+
+  const createdAt = new Date();
+
+  try {
+    const message = await Message.create({
+      conversation: conversation._id,
+
+      sender: senderUserId,
+
+      kind: "event",
+
+      body: normalizedBody,
+
+      context: normalizedContext,
+
+      dedupeKey: dedupeKey || undefined,
+
+      readBy: [
+        {
+          user: senderUserId,
+          readAt: createdAt,
+        },
+      ],
+
+      createdAt,
+
+      updatedAt: createdAt,
+    });
+
+    const updatedConversation = await syncConversationPreview(
+      conversation,
+      message,
+    );
+
+    if (!updatedConversation) {
+      await Message.deleteOne({
+        _id: message._id,
+      });
+
+      throw new AppError("Conversation is no longer available", 409);
+    }
+
+    const normalizedMessage = await toMessageResponse(message);
+
+    const { toConversationResponse } = require("./conversation.service");
+
+    const normalizedConversation =
+      await toConversationResponse(updatedConversation);
+
+    void eventBus.emitSafe(EVENTS.MESSAGE_CREATED, {
+      message: normalizedMessage,
+
+      conversationId: String(updatedConversation._id),
+    });
+
+    return {
+      message: normalizedMessage,
+
+      conversation: normalizedConversation,
+
+      created: true,
+    };
+  } catch (error) {
+    if (error?.code === 11000 && dedupeKey) {
+      const existingMessage = await Message.findOne({
+        conversation: conversation._id,
+        dedupeKey,
+      });
+
+      if (existingMessage) {
+        const updatedConversation = await syncConversationPreview(
+          conversation,
+          existingMessage,
+        );
+
+        return {
+          message: await toMessageResponse(existingMessage),
+
+          conversation: updatedConversation,
+
+          created: false,
+        };
+      }
+    }
+
+    throw error;
+  }
+};
+
 // Internal-only recovery seam for a Contact Agent initial message. The public
 // Message API cannot submit its deterministic dedupe key.
-const createOrGetInitialMessage = async (user, conversationId, payload = {}, dedupeKey) => {
+const createOrGetInitialMessage = async (
+  user,
+  conversationId,
+  payload = {},
+  dedupeKey,
+) => {
   if (!dedupeKey) {
     throw new AppError("An initial message dedupe key is required", 400);
   }
 
   const conversation = await getAuthorizedConversation(user, conversationId);
   const { type, body } = validateMessagePayload(payload);
-  const existingMessage = await Message.findOne({ conversation: conversation._id, dedupeKey });
+  const existingMessage = await Message.findOne({
+    conversation: conversation._id,
+    dedupeKey,
+  });
 
   if (existingMessage) {
-    const updatedConversation = await syncConversationPreview(conversation, existingMessage);
-    return { message: existingMessage, conversation: updatedConversation, created: false };
+    const updatedConversation = await syncConversationPreview(
+      conversation,
+      existingMessage,
+    );
+    return {
+      message: existingMessage,
+      conversation: updatedConversation,
+      created: false,
+    };
   }
 
   const createdAt = new Date();
@@ -186,7 +373,10 @@ const createOrGetInitialMessage = async (user, conversationId, payload = {}, ded
       createdAt,
       updatedAt: createdAt,
     });
-    const updatedConversation = await syncConversationPreview(conversation, message);
+    const updatedConversation = await syncConversationPreview(
+      conversation,
+      message,
+    );
 
     if (!updatedConversation) {
       await Message.deleteOne({ _id: message._id });
@@ -196,9 +386,15 @@ const createOrGetInitialMessage = async (user, conversationId, payload = {}, ded
     return { message, conversation: updatedConversation, created: true };
   } catch (error) {
     if (error?.code === 11000) {
-      const message = await Message.findOne({ conversation: conversation._id, dedupeKey });
+      const message = await Message.findOne({
+        conversation: conversation._id,
+        dedupeKey,
+      });
       if (message) {
-        const updatedConversation = await syncConversationPreview(conversation, message);
+        const updatedConversation = await syncConversationPreview(
+          conversation,
+          message,
+        );
         return { message, conversation: updatedConversation, created: false };
       }
     }
@@ -224,6 +420,7 @@ const markConversationRead = async (user, conversationId) => {
 };
 
 module.exports = {
+  createEventMessage,
   createOrGetInitialMessage,
   getMessagesForConversation,
   markConversationRead,

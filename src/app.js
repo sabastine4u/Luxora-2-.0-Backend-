@@ -107,6 +107,8 @@ app.use("/api/v1/bookings", bookingRoutes);
 // Mount the Buyer Offer routes under the /api/v1/offers endpoint.
 app.use("/api/v1/offers", offerRoutes);
 
+
+
 // Mount the Deal API under the versioned /api/v1/deals namespace.
 app.use("/api/v1/deals", dealRoutes);
 // Mount the Owner analytics API.

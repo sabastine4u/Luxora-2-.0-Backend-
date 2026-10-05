@@ -16,6 +16,11 @@ const Agent = require("../models/agent.model");
 // authenticate through a linked User account.
 const Agency = require("../models/agency.model");
 
+// Commission is created automatically when a Deal is completed.
+const {
+  createCommissionFromCompletedDeal,
+} = require("./commission.service");
+
 // Import the application's canonical role constants.
 const { ROLES } = require("../config/constants");
 
@@ -325,6 +330,125 @@ const completeAgreement = async (
   );
 };
 
+// Cancel an active transaction Deal.
+//
+// Cancellation is allowed only before payment verification/finalization.
+// The cancellation reason is stored for the transaction audit trail.
+// If the Property is still Under Offer, it is returned to the marketplace
+// as Published + Available.
+const cancelDeal = async (
+  user,
+  dealId,
+  cancellationReason,
+) => {
+  if (
+    !dealId ||
+    !mongoose.isValidObjectId(dealId)
+  ) {
+    throw new AppError(
+      "Invalid Deal ID.",
+      400,
+    );
+  }
+
+  const accessFilter =
+    await getDealAccessFilter(user);
+
+  const deal = await Deal.findOne({
+    _id: dealId,
+    ...accessFilter,
+  });
+
+  if (!deal) {
+    throw new AppError(
+      "Deal not found.",
+      404,
+    );
+  }
+
+  const cancellableStatuses = new Set([
+    "Agreement Pending",
+    "Agreement Completed",
+    "Payment Pending",
+  ]);
+
+  if (
+    !cancellableStatuses.has(
+      deal.status,
+    )
+  ) {
+    throw new AppError(
+      `Deal cannot be cancelled while the Deal is "${deal.status}".`,
+      409,
+    );
+  }
+
+  const reason =
+    typeof cancellationReason ===
+    "string"
+      ? cancellationReason.trim()
+      : "";
+
+  if (!reason) {
+    throw new AppError(
+      "A cancellation reason is required.",
+      400,
+    );
+  }
+
+  if (reason.length > 2000) {
+    throw new AppError(
+      "Cancellation reason cannot exceed 2000 characters.",
+      400,
+    );
+  }
+
+  const property =
+    await Property.findById(
+      deal.property,
+    );
+
+  if (property) {
+    /*
+     * The accepted Offer moved the Property into
+     * Under Offer. When the Deal is cancelled, make
+     * the listing available again.
+     */
+    if (
+      property.status ===
+      "Under Offer"
+    ) {
+      property.status =
+        "Published";
+
+      property.availabilityStatus =
+        "Available";
+
+      await property.save();
+    }
+  }
+
+  deal.status =
+    "Cancelled";
+
+  deal.cancelledAt =
+    new Date();
+
+  deal.cancelledBy =
+    user._id;
+
+  deal.cancellationReason =
+    reason;
+
+  await deal.save();
+
+  return populateDeal(
+    Deal.findById(
+      deal._id,
+    ),
+  );
+};
+
 // Verify the payment for an Agreement-completed Deal.
 //
 // Payment verification belongs to Finance/Admin oversight.
@@ -454,6 +578,12 @@ const verifyPayment = async (
 // Completion is the final transaction transition.
 // It records who completed the Deal and moves the related
 // Property from Under Offer to its final transaction state.
+// Complete a payment-verified Deal.
+//
+// Completion is the final transaction transition.
+// It records who completed the Deal, finalizes the Property,
+// and automatically creates the Commission when the transaction
+// belongs to an Agency/Agent.
 const completeDeal = async (
   user,
   dealId,
@@ -495,13 +625,20 @@ const completeDeal = async (
     );
   }
 
-  // Make completion idempotent.
-  // If the Deal is already completed, return it rather
-  // than creating a second completion event.
+  /*
+   * Already-completed Deals are still passed through
+   * the Commission hook so older completed Agency/Agent
+   * Deals can be repaired if they do not yet have a
+   * Commission record.
+   */
   if (
     deal.status ===
     "Completed"
   ) {
+    await createCommissionFromCompletedDeal(
+      deal,
+    );
+
     return populateDeal(
       Deal.findById(
         deal._id,
@@ -567,16 +704,34 @@ const completeDeal = async (
         ? "Rented"
         : "Leased";
 
-  // Finalize the Property.
+  /*
+   * Keep the existing values so the transaction can be
+   * restored if Commission creation fails.
+   */
+  const previousPropertyStatus =
+    property.status;
+
+  const previousPropertyAvailability =
+    property.availabilityStatus;
+
+  const previousDealStatus =
+    deal.status;
+
+  const previousCompletedAt =
+    deal.completedAt;
+
+  const previousCompletedBy =
+    deal.completedBy;
+
+  /*
+   * Prepare the final transaction state in memory.
+   */
   property.status =
     finalPropertyStatus;
 
   property.availabilityStatus =
     "Unavailable";
 
-  await property.save();
-
-  // Finalize the Deal.
   deal.status =
     "Completed";
 
@@ -586,10 +741,55 @@ const completeDeal = async (
   deal.completedBy =
     user._id;
 
-  await deal.save();
+  try {
+    /*
+     * Persist the final Property and Deal state.
+     */
+    await property.save();
 
-  // Return the same fully populated Deal DTO
-  // used everywhere else in the Deal API.
+    await deal.save();
+
+    /*
+     * Automatically create the Commission.
+     *
+     * Agency/Agent transactions produce a Commission.
+     * Admin/Super Admin platform-owned transactions
+     * without Agency/Agent relationships return null.
+     *
+     * The Commission service is idempotent.
+     */
+    await createCommissionFromCompletedDeal(
+      deal,
+    );
+  } catch (error) {
+    /*
+     * Restore the transaction state when Commission
+     * creation fails.
+     */
+    property.status =
+      previousPropertyStatus;
+
+    property.availabilityStatus =
+      previousPropertyAvailability;
+
+    deal.status =
+      previousDealStatus;
+
+    deal.completedAt =
+      previousCompletedAt;
+
+    deal.completedBy =
+      previousCompletedBy;
+
+    await property.save();
+    await deal.save();
+
+    throw error;
+  }
+
+  /*
+   * Return the fully populated Deal.
+   */
   return populateDeal(
     Deal.findById(
       deal._id,
@@ -602,6 +802,7 @@ module.exports = {
   getMyDeals,
   getDealById,
   completeAgreement,
+  cancelDeal,
   verifyPayment,
   completeDeal,
 };

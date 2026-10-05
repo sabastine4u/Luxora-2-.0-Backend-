@@ -35,7 +35,7 @@ const sameDate = (left, right) => {
   return new Date(left).getTime() === new Date(right).getTime();
 };
 
-const matchesIdempotentInquiry = (inquiry, values) => (
+const matchesIdempotentInquiry = (inquiry, values) =>
   String(inquiry.property) === String(values.propertyId) &&
   inquiry.fullName === values.fullName &&
   inquiry.email === values.email &&
@@ -43,12 +43,14 @@ const matchesIdempotentInquiry = (inquiry, values) => (
   inquiry.message === values.message &&
   inquiry.source === values.source &&
   sameDate(inquiry.preferredDate, values.preferredDate) &&
-  (inquiry.preferredTime || null) === values.preferredTime
-);
+  (inquiry.preferredTime || null) === values.preferredTime;
 
 const requireIdempotencyKey = (idempotencyKey) => {
   if (typeof idempotencyKey !== "string" || !idempotencyKey.trim()) {
-    throw new AppError("X-Idempotency-Key is required for authenticated inquiries", 400);
+    throw new AppError(
+      "X-Idempotency-Key is required for authenticated inquiries",
+      400,
+    );
   }
 
   const value = idempotencyKey.trim();
@@ -60,7 +62,11 @@ const requireIdempotencyKey = (idempotencyKey) => {
 };
 
 // Create a new property inquiry from the public Contact Agent workflow.
-const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempotencyKey = null) => {
+const createInquiry = async (
+  inquiryData = {},
+  authenticatedUser = null,
+  idempotencyKey = null,
+) => {
   // Read only the fields that the seeker is allowed to submit.
   const {
     propertyId,
@@ -74,14 +80,8 @@ const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempot
   } = inquiryData;
 
   // Require a valid Property ID before attempting the database lookup.
-  if (
-    !propertyId ||
-    !mongoose.isValidObjectId(propertyId)
-  ) {
-    throw new AppError(
-      "A valid property ID is required",
-      400,
-    );
+  if (!propertyId || !mongoose.isValidObjectId(propertyId)) {
+    throw new AppError("A valid property ID is required", 400);
   }
 
   // Require the core contact information used by the inquiry workflow.
@@ -98,17 +98,8 @@ const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempot
   }
 
   // Only allow supported inquiry sources.
-  if (
-    ![
-      "Contact Agent",
-      "Schedule Viewing",
-      "Website",
-    ].includes(source)
-  ) {
-    throw new AppError(
-      "Invalid inquiry source",
-      400,
-    );
+  if (!["Contact Agent", "Schedule Viewing", "Website"].includes(source)) {
+    throw new AppError("Invalid inquiry source", 400);
   }
 
   const values = {
@@ -126,10 +117,15 @@ const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempot
   // Anonymous submissions retain the existing persistence and notification
   // behavior without a Conversation or an initial authenticated Message.
   if (!authenticatedUser?._id) {
-    const property = await Property.findOne({ _id: propertyId, status: "Published" })
-      .select("_id title agency agent owner status");
+    const property = await Property.findOne({
+      _id: propertyId,
+      status: "Published",
+    }).select("_id title agency agent owner status");
     if (!property) {
-      throw new AppError("Property not found or is not currently published", 404);
+      throw new AppError(
+        "Property not found or is not currently published",
+        404,
+      );
     }
 
     const inquiry = await Inquiry.create({
@@ -152,14 +148,22 @@ const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempot
   let inquiryCreated = false;
 
   if (inquiry && !matchesIdempotentInquiry(inquiry, values)) {
-    throw new AppError("This idempotency key has already been used for a different inquiry request", 409);
+    throw new AppError(
+      "This idempotency key has already been used for a different inquiry request",
+      409,
+    );
   }
 
   if (!inquiry) {
-    const property = await Property.findOne({ _id: propertyId, status: "Published" })
-      .select("_id title agency agent owner status");
+    const property = await Property.findOne({
+      _id: propertyId,
+      status: "Published",
+    }).select("_id title agency agent owner status");
     if (!property) {
-      throw new AppError("Property not found or is not currently published", 404);
+      throw new AppError(
+        "Property not found or is not currently published",
+        404,
+      );
     }
 
     try {
@@ -176,31 +180,37 @@ const createInquiry = async (inquiryData = {}, authenticatedUser = null, idempot
     } catch (error) {
       if (error?.code !== 11000) throw error;
 
-      inquiry = await Inquiry.findOne({ inquirer: authenticatedUser._id, idempotencyKey: key });
+      inquiry = await Inquiry.findOne({
+        inquirer: authenticatedUser._id,
+        idempotencyKey: key,
+      });
       if (!inquiry) throw error;
       if (!matchesIdempotentInquiry(inquiry, values)) {
-        throw new AppError("This idempotency key has already been used for a different inquiry request", 409);
+        throw new AppError(
+          "This idempotency key has already been used for a different inquiry request",
+          409,
+        );
       }
     }
   }
 
   // Capture any durable inquiry thread before recovery.  This makes the
   // creation flag accurately represent a message-only recovery.
-const existingInquiryConversation = await Conversation.findOne({
-  inquiry: inquiry._id,
-}).select("_id").lean();
+  const existingInquiryConversation = await Conversation.findOne({
+    inquiry: inquiry._id,
+  })
+    .select("_id")
+    .lean();
 
-const conversationExistedBefore = Boolean(
-  existingInquiryConversation?._id
-);
+  const conversationExistedBefore = Boolean(existingInquiryConversation?._id);
 
-const { conversation } = await conversationService.createConversation(
-  authenticatedUser,
-  {
-    type: COMMUNICATION.CONVERSATION_TYPES.PROPERTY_INQUIRY,
-    inquiryId: String(inquiry._id),
-  },
-);
+  const { conversation } = await conversationService.createConversation(
+    authenticatedUser,
+    {
+      type: COMMUNICATION.CONVERSATION_TYPES.PROPERTY_INQUIRY,
+      inquiryId: String(inquiry._id),
+    },
+  );
   const initialMessage = await messageService.createOrGetInitialMessage(
     authenticatedUser,
     conversation._id,
@@ -218,41 +228,28 @@ const { conversation } = await conversationService.createConversation(
     initialMessage: initialMessage.message,
     created: {
       inquiry: inquiryCreated,
-     conversation: !conversationExistedBefore,
+      conversation: !conversationExistedBefore,
       initialMessage: initialMessage.created,
     },
   };
 };
 
 // Retrieve all inquiries belonging to the authenticated Agency.
-const getAgencyInquiries = async (
-  authenticatedUser,
-) => {
+const getAgencyInquiries = async (authenticatedUser) => {
   // Ensure the request contains authenticated-user information.
-  if (
-    !authenticatedUser?._id ||
-    !authenticatedUser?.role
-  ) {
-    throw new AppError(
-      "Authenticated user information is required",
-      401,
-    );
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError("Authenticated user information is required", 401);
   }
 
   // Keep this service explicitly Agency-only.
   if (authenticatedUser.role !== "Agency") {
-    throw new AppError(
-      "Only an Agency can access agency inquiries",
-      403,
-    );
+    throw new AppError("Only an Agency can access agency inquiries", 403);
   }
 
   // Find the Agency connected to the logged-in User.
   const agency = await Agency.findOne({
     user: authenticatedUser._id,
-  }).select(
-    "_id name status",
-  );
+  }).select("_id name status");
 
   // Stop when the User has no Agency profile.
   if (!agency) {
@@ -264,10 +261,7 @@ const getAgencyInquiries = async (
 
   // Prevent suspended Agencies from accessing the inquiry pipeline.
   if (agency.status !== "Active") {
-    throw new AppError(
-      "The agency account is suspended",
-      403,
-    );
+    throw new AppError("The agency account is suspended", 403);
   }
 
   // Retrieve the Agency's real inquiries with their Property and Agent.
@@ -277,12 +271,11 @@ const getAgencyInquiries = async (
     .populate({
       path: "property",
       select:
-        "title city state status",
+        "title propertyType transactionType city state area price currency status images coverImage",
     })
     .populate({
       path: "agent",
-      select:
-        "fullName email status",
+      select: "fullName email status",
     })
     .sort({
       createdAt: -1,
@@ -293,26 +286,15 @@ const getAgencyInquiries = async (
 };
 
 // Retrieve all inquiries assigned to the authenticated Agent.
-const getAgentInquiries = async (
-  authenticatedUser,
-) => {
+const getAgentInquiries = async (authenticatedUser) => {
   // Ensure the request contains authenticated-user information.
-  if (
-    !authenticatedUser?._id ||
-    !authenticatedUser?.role
-  ) {
-    throw new AppError(
-      "Authenticated user information is required",
-      401,
-    );
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError("Authenticated user information is required", 401);
   }
 
   // Keep this service explicitly Agent-only.
   if (authenticatedUser.role !== "Agent") {
-    throw new AppError(
-      "Only an Agent can access agent leads",
-      403,
-    );
+    throw new AppError("Only an Agent can access agent leads", 403);
   }
 
   // Find the Agent profile connected to the logged-in User.
@@ -330,10 +312,7 @@ const getAgentInquiries = async (
 
   // Prevent suspended Agents from accessing their Lead pipeline.
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is not active",
-      403,
-    );
+    throw new AppError("The agent account is not active", 403);
   }
 
   // Retrieve only inquiries assigned to this Agent.
@@ -366,14 +345,9 @@ const getAgentInquiries = async (
 };
 
 // Build a CRM-style client list from the authenticated Agent's real inquiries.
-const getAgentClients = async (
-  authenticatedUser,
-) => {
+const getAgentClients = async (authenticatedUser) => {
   // Require authenticated Agent information.
-  if (
-    !authenticatedUser?._id ||
-    authenticatedUser?.role !== "Agent"
-  ) {
+  if (!authenticatedUser?._id || authenticatedUser?.role !== "Agent") {
     throw new AppError(
       "Only an authenticated Agent can access agent clients",
       403,
@@ -394,10 +368,7 @@ const getAgentClients = async (
 
   // Prevent inactive Agents from accessing client records.
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is not active",
-      403,
-    );
+    throw new AppError("The agent account is not active", 403);
   }
 
   // Retrieve every real inquiry assigned to this Agent.
@@ -419,16 +390,14 @@ const getAgentClients = async (
 
   for (const inquiry of inquiries) {
     // Normalize the email so duplicate casing does not create duplicate clients.
-    const clientKey =
-      inquiry.email?.trim().toLowerCase();
+    const clientKey = inquiry.email?.trim().toLowerCase();
 
     // Ignore malformed inquiry records without an email.
     if (!clientKey) {
       continue;
     }
 
-    const existingClient =
-      clientMap.get(clientKey);
+    const existingClient = clientMap.get(clientKey);
 
     // Use the newest inquiry as the current representation of the contact.
     if (!existingClient) {
@@ -442,44 +411,29 @@ const getAgentClients = async (
         inquiryCount: 1,
 
         // Track distinct properties the contact has asked about.
-        propertyCount: inquiry.property
-          ? 1
-          : 0,
+        propertyCount: inquiry.property ? 1 : 0,
 
         // Keep the newest interaction date.
         lastContactAt:
-          inquiry.lastActivityAt ||
-          inquiry.updatedAt ||
-          inquiry.createdAt,
+          inquiry.lastActivityAt || inquiry.updatedAt || inquiry.createdAt,
 
         // Keep the first known interaction date.
-        firstInteractionAt:
-          inquiry.createdAt,
+        firstInteractionAt: inquiry.createdAt,
 
         // Keep the current/latest Lead status.
-        status:
-          inquiry.status || "New",
+        status: inquiry.status || "New",
 
         // Preserve the latest property context.
-        latestProperty:
-          inquiry.property || null,
+        latestProperty: inquiry.property || null,
 
         // Track whether a real authenticated User exists.
-        isRegisteredUser:
-          Boolean(inquiry.inquirer),
+        isRegisteredUser: Boolean(inquiry.inquirer),
 
         // Preserve the source of the latest interaction.
-        latestSource:
-          inquiry.source || null,
+        latestSource: inquiry.source || null,
 
         // Track whether this contact still has an active Lead.
-        hasActiveInquiry:
-          ![
-            "Closed",
-            "Lost",
-          ].includes(
-            inquiry.status,
-          ),
+        hasActiveInquiry: !["Closed", "Lost"].includes(inquiry.status),
       });
 
       continue;
@@ -490,100 +444,58 @@ const getAgentClients = async (
 
     // Count a new property only when it has not already appeared for this contact.
     if (inquiry.property?._id) {
-      const previousPropertyIds =
-        existingClient._propertyIds ||
-        new Set();
+      const previousPropertyIds = existingClient._propertyIds || new Set();
 
-      previousPropertyIds.add(
-        String(
-          inquiry.property._id,
-        ),
-      );
+      previousPropertyIds.add(String(inquiry.property._id));
 
-      existingClient._propertyIds =
-        previousPropertyIds;
+      existingClient._propertyIds = previousPropertyIds;
 
-      existingClient.propertyCount =
-        previousPropertyIds.size;
+      existingClient.propertyCount = previousPropertyIds.size;
     }
 
     // Keep the oldest interaction date for client tenure calculations.
     if (
-      new Date(inquiry.createdAt) <
-      new Date(
-        existingClient.firstInteractionAt,
-      )
+      new Date(inquiry.createdAt) < new Date(existingClient.firstInteractionAt)
     ) {
-      existingClient.firstInteractionAt =
-        inquiry.createdAt;
+      existingClient.firstInteractionAt = inquiry.createdAt;
     }
 
     // Keep the latest activity date.
     const inquiryActivity =
-      inquiry.lastActivityAt ||
-      inquiry.updatedAt ||
-      inquiry.createdAt;
+      inquiry.lastActivityAt || inquiry.updatedAt || inquiry.createdAt;
 
-    if (
-      new Date(inquiryActivity) >
-      new Date(
-        existingClient.lastContactAt,
-      )
-    ) {
-      existingClient.lastContactAt =
-        inquiryActivity;
+    if (new Date(inquiryActivity) > new Date(existingClient.lastContactAt)) {
+      existingClient.lastContactAt = inquiryActivity;
 
       // The newest inquiry becomes the current visible Lead context.
-      existingClient.name =
-        inquiry.fullName;
+      existingClient.name = inquiry.fullName;
 
-      existingClient.phone =
-        inquiry.phone;
+      existingClient.phone = inquiry.phone;
 
-      existingClient.status =
-        inquiry.status || "New";
+      existingClient.status = inquiry.status || "New";
 
-      existingClient.latestProperty =
-        inquiry.property || null;
+      existingClient.latestProperty = inquiry.property || null;
 
-      existingClient.latestSource =
-        inquiry.source || null;
+      existingClient.latestSource = inquiry.source || null;
 
-      existingClient.isRegisteredUser =
-        Boolean(inquiry.inquirer);
+      existingClient.isRegisteredUser = Boolean(inquiry.inquirer);
     }
 
     // Keep the client active when at least one inquiry is still open.
-    if (
-      ![
-        "Closed",
-        "Lost",
-      ].includes(
-        inquiry.status,
-      )
-    ) {
-      existingClient.hasActiveInquiry =
-        true;
+    if (!["Closed", "Lost"].includes(inquiry.status)) {
+      existingClient.hasActiveInquiry = true;
     }
   }
 
   // Remove the internal Set before returning the API payload.
-  const clients = Array.from(
-    clientMap.values(),
-  ).map((client) => {
-    const {
-      _propertyIds,
-      ...publicClient
-    } = client;
+  const clients = Array.from(clientMap.values()).map((client) => {
+    const { _propertyIds, ...publicClient } = client;
 
     return {
       ...publicClient,
 
       // Return a CRM-friendly relationship status derived only from real Leads.
-      relationshipStatus:
-        publicClient.hasActiveInquiry
-          ? "Active"
-          : "Past",
+      relationshipStatus: publicClient.hasActiveInquiry ? "Active" : "Past",
 
       // The current backend does not store a client lifetime transaction value.
       totalValue: null,
@@ -596,12 +508,7 @@ const getAgentClients = async (
   // Return newest client relationships first.
   clients.sort(
     (a, b) =>
-      new Date(
-        b.lastContactAt,
-      ).getTime() -
-      new Date(
-        a.lastContactAt,
-      ).getTime(),
+      new Date(b.lastContactAt).getTime() - new Date(a.lastContactAt).getTime(),
   );
 
   return clients;
@@ -615,21 +522,12 @@ const updateAgentInquiryStatus = async (
   authenticatedUser,
 ) => {
   // Require a valid MongoDB Inquiry ID.
-  if (
-    !inquiryId ||
-    !mongoose.isValidObjectId(inquiryId)
-  ) {
-    throw new AppError(
-      "A valid inquiry ID is required",
-      400,
-    );
+  if (!inquiryId || !mongoose.isValidObjectId(inquiryId)) {
+    throw new AppError("A valid inquiry ID is required", 400);
   }
 
   // Require the authenticated Agent.
-  if (
-    !authenticatedUser?._id ||
-    authenticatedUser?.role !== "Agent"
-  ) {
+  if (!authenticatedUser?._id || authenticatedUser?.role !== "Agent") {
     throw new AppError(
       "Only an authenticated Agent can update Lead status",
       403,
@@ -647,10 +545,7 @@ const updateAgentInquiryStatus = async (
   ];
 
   if (!allowedStatuses.includes(status)) {
-    throw new AppError(
-      "Invalid Lead status",
-      400,
-    );
+    throw new AppError("Invalid Lead status", 400);
   }
 
   // Find the Agent profile connected to the authenticated User.
@@ -666,10 +561,7 @@ const updateAgentInquiryStatus = async (
   }
 
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is not active",
-      403,
-    );
+    throw new AppError("The agent account is not active", 403);
   }
 
   // Only update a Lead that belongs to this Agent.
@@ -679,19 +571,13 @@ const updateAgentInquiryStatus = async (
   });
 
   if (!inquiry) {
-    throw new AppError(
-      "Lead not found or is not assigned to this Agent",
-      404,
-    );
+    throw new AppError("Lead not found or is not assigned to this Agent", 404);
   }
 
   const previousStatus = inquiry.status;
 
   // Store the first contact timestamp when the Lead first becomes Contacted.
-  if (
-    !inquiry.firstContactedAt &&
-    status === "Contacted"
-  ) {
+  if (!inquiry.firstContactedAt && status === "Contacted") {
     inquiry.firstContactedAt = new Date();
   }
 
@@ -703,23 +589,16 @@ const updateAgentInquiryStatus = async (
 
   // Record the status transition in the activity history.
   inquiry.activities.push({
-    action:
-      status === "Contacted"
-        ? "Contacted"
-        : "Status Changed",
+    action: status === "Contacted" ? "Contacted" : "Status Changed",
     description:
-      note?.trim() ||
-      `Lead status changed from ${previousStatus} to ${status}`,
-    performedBy:
-      authenticatedUser._id,
+      note?.trim() || `Lead status changed from ${previousStatus} to ${status}`,
+    performedBy: authenticatedUser._id,
   });
 
   await inquiry.save();
 
   // Return the updated Lead with its related dashboard data.
-  return Inquiry.findById(
-    inquiry._id,
-  )
+  return Inquiry.findById(inquiry._id)
     .populate({
       path: "property",
       select:
@@ -736,39 +615,20 @@ const updateAgentInquiryStatus = async (
 };
 
 // Add a real Agent note to an assigned Lead.
-const addAgentInquiryNote = async (
-  inquiryId,
-  note,
-  authenticatedUser,
-) => {
+const addAgentInquiryNote = async (inquiryId, note, authenticatedUser) => {
   // Require a valid MongoDB Inquiry ID.
-  if (
-    !inquiryId ||
-    !mongoose.isValidObjectId(inquiryId)
-  ) {
-    throw new AppError(
-      "A valid inquiry ID is required",
-      400,
-    );
+  if (!inquiryId || !mongoose.isValidObjectId(inquiryId)) {
+    throw new AppError("A valid inquiry ID is required", 400);
   }
 
   // Require the authenticated Agent.
-  if (
-    !authenticatedUser?._id ||
-    authenticatedUser?.role !== "Agent"
-  ) {
-    throw new AppError(
-      "Only an authenticated Agent can add Lead notes",
-      403,
-    );
+  if (!authenticatedUser?._id || authenticatedUser?.role !== "Agent") {
+    throw new AppError("Only an authenticated Agent can add Lead notes", 403);
   }
 
   // Require meaningful note content.
   if (!note?.trim()) {
-    throw new AppError(
-      "Lead note is required",
-      400,
-    );
+    throw new AppError("Lead note is required", 400);
   }
 
   // Find the Agent profile belonging to the authenticated User.
@@ -784,10 +644,7 @@ const addAgentInquiryNote = async (
   }
 
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is not active",
-      403,
-    );
+    throw new AppError("The agent account is not active", 403);
   }
 
   // Only allow notes on Leads assigned to this Agent.
@@ -797,10 +654,7 @@ const addAgentInquiryNote = async (
   });
 
   if (!inquiry) {
-    throw new AppError(
-      "Lead not found or is not assigned to this Agent",
-      404,
-    );
+    throw new AppError("Lead not found or is not assigned to this Agent", 404);
   }
 
   const now = new Date();
@@ -808,8 +662,7 @@ const addAgentInquiryNote = async (
   // Add the note to the Lead.
   inquiry.notes.push({
     text: note.trim(),
-    addedBy:
-      authenticatedUser._id,
+    addedBy: authenticatedUser._id,
     addedAt: now,
   });
 
@@ -820,16 +673,13 @@ const addAgentInquiryNote = async (
   inquiry.activities.push({
     action: "Note Added",
     description: note.trim(),
-    performedBy:
-      authenticatedUser._id,
+    performedBy: authenticatedUser._id,
     createdAt: now,
   });
 
   await inquiry.save();
 
-  return Inquiry.findById(
-    inquiry._id,
-  )
+  return Inquiry.findById(inquiry._id)
     .populate({
       path: "property",
       select:
@@ -854,21 +704,12 @@ const scheduleAgentInquiryViewing = async (
   authenticatedUser,
 ) => {
   // Require a valid MongoDB Inquiry ID.
-  if (
-    !inquiryId ||
-    !mongoose.isValidObjectId(inquiryId)
-  ) {
-    throw new AppError(
-      "A valid inquiry ID is required",
-      400,
-    );
+  if (!inquiryId || !mongoose.isValidObjectId(inquiryId)) {
+    throw new AppError("A valid inquiry ID is required", 400);
   }
 
   // Require the authenticated Agent.
-  if (
-    !authenticatedUser?._id ||
-    authenticatedUser?.role !== "Agent"
-  ) {
+  if (!authenticatedUser?._id || authenticatedUser?.role !== "Agent") {
     throw new AppError(
       "Only an authenticated Agent can schedule a viewing",
       403,
@@ -876,26 +717,15 @@ const scheduleAgentInquiryViewing = async (
   }
 
   // Require both viewing date and viewing time.
-  if (
-    !scheduledDate ||
-    !scheduledTime?.trim()
-  ) {
-    throw new AppError(
-      "Scheduled date and time are required",
-      400,
-    );
+  if (!scheduledDate || !scheduledTime?.trim()) {
+    throw new AppError("Scheduled date and time are required", 400);
   }
 
-  const parsedDate = new Date(
-    scheduledDate,
-  );
+  const parsedDate = new Date(scheduledDate);
 
   // Reject invalid date values.
   if (Number.isNaN(parsedDate.getTime())) {
-    throw new AppError(
-      "Invalid scheduled viewing date",
-      400,
-    );
+    throw new AppError("Invalid scheduled viewing date", 400);
   }
 
   // Find the Agent profile belonging to the authenticated User.
@@ -911,10 +741,7 @@ const scheduleAgentInquiryViewing = async (
   }
 
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is not active",
-      403,
-    );
+    throw new AppError("The agent account is not active", 403);
   }
 
   // Only allow the Agent to schedule viewings for their own Leads.
@@ -924,52 +751,38 @@ const scheduleAgentInquiryViewing = async (
   });
 
   if (!inquiry) {
-    throw new AppError(
-      "Lead not found or is not assigned to this Agent",
-      404,
-    );
+    throw new AppError("Lead not found or is not assigned to this Agent", 404);
   }
 
   // Remember whether an appointment already exists.
-  const wasAlreadyScheduled =
-    Boolean(
-      inquiry.scheduledDate ||
-      inquiry.scheduledTime,
-    );
+  const wasAlreadyScheduled = Boolean(
+    inquiry.scheduledDate || inquiry.scheduledTime,
+  );
 
   // Preserve the current Lead status when rescheduling.
   // Only a Lead that has never reached the viewing stage
   // should automatically move into "Viewing Scheduled".
-  const previousLeadStatus =
-    inquiry.status;
+  const previousLeadStatus = inquiry.status;
 
   const now = new Date();
 
   // Store the confirmed viewing schedule.
-  inquiry.scheduledDate =
-    parsedDate;
+  inquiry.scheduledDate = parsedDate;
 
-  inquiry.scheduledTime =
-    scheduledTime.trim();
+  inquiry.scheduledTime = scheduledTime.trim();
 
   // Scheduling or rescheduling always activates the appointment.
-  inquiry.appointmentStatus =
-    "Scheduled";
+  inquiry.appointmentStatus = "Scheduled";
 
   // Only move the Lead into "Viewing Scheduled"
   // when it is still in an earlier pipeline stage.
   if (
     !wasAlreadyScheduled &&
-    [
-      "New",
-      "Contacted",
-    ].includes(previousLeadStatus)
+    ["New", "Contacted"].includes(previousLeadStatus)
   ) {
-    inquiry.status =
-      "Viewing Scheduled";
+    inquiry.status = "Viewing Scheduled";
   } else {
-    inquiry.status =
-      previousLeadStatus;
+    inquiry.status = previousLeadStatus;
   }
 
   // Record the latest activity timestamp.
@@ -977,26 +790,19 @@ const scheduleAgentInquiryViewing = async (
 
   // Record the scheduling action.
   inquiry.activities.push({
-    action: wasAlreadyScheduled
-      ? "Viewing Rescheduled"
-      : "Viewing Scheduled",
+    action: wasAlreadyScheduled ? "Viewing Rescheduled" : "Viewing Scheduled",
     description:
       note?.trim() ||
       `${
-        wasAlreadyScheduled
-          ? "Viewing rescheduled"
-          : "Viewing scheduled"
+        wasAlreadyScheduled ? "Viewing rescheduled" : "Viewing scheduled"
       } for ${parsedDate.toISOString()} at ${scheduledTime.trim()}`,
-    performedBy:
-      authenticatedUser._id,
+    performedBy: authenticatedUser._id,
     createdAt: now,
   });
 
   await inquiry.save();
 
-  return Inquiry.findById(
-    inquiry._id,
-  )
+  return Inquiry.findById(inquiry._id)
     .populate({
       path: "property",
       select:
@@ -1013,34 +819,21 @@ const scheduleAgentInquiryViewing = async (
 };
 
 // Retrieve all scheduled viewing appointments for the authenticated Agent.
-const getAgentAppointments = async (
-  authenticatedUser,
-) => {
+const getAgentAppointments = async (authenticatedUser) => {
   // Ensure the request contains authenticated-user information.
-  if (
-    !authenticatedUser?._id ||
-    !authenticatedUser?.role
-  ) {
-    throw new AppError(
-      "Authenticated user information is required",
-      401,
-    );
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError("Authenticated user information is required", 401);
   }
 
   // Keep this service explicitly Agent-only.
   if (authenticatedUser.role !== "Agent") {
-    throw new AppError(
-      "Only an Agent can access Agent appointments",
-      403,
-    );
+    throw new AppError("Only an Agent can access Agent appointments", 403);
   }
 
   // Find the Agent profile connected to the logged-in User.
   const agent = await Agent.findOne({
     user: authenticatedUser._id,
-  }).select(
-    "_id fullName email status agency",
-  );
+  }).select("_id fullName email status agency");
 
   // Stop when the User has no Agent profile.
   if (!agent) {
@@ -1052,10 +845,7 @@ const getAgentAppointments = async (
 
   // Prevent inactive Agents from accessing appointment data.
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is inactive",
-      403,
-    );
+    throw new AppError("The agent account is inactive", 403);
   }
 
   // Retrieve inquiries that have an actual scheduled viewing.
@@ -1083,120 +873,76 @@ const getAgentAppointments = async (
     });
 
   // Convert the Inquiry records into the appointment shape needed by the UI.
-  return inquiries.map(
-    (inquiry) => {
-      const property =
-        inquiry.property || null;
+  return inquiries.map((inquiry) => {
+    const property = inquiry.property || null;
 
-      return {
-        // Use the Inquiry ID because the appointment belongs to the Lead.
-        id: String(
-          inquiry._id,
-        ),
+    return {
+      // Use the Inquiry ID because the appointment belongs to the Lead.
+      id: String(inquiry._id),
 
-        // Keep the source Inquiry ID available for future appointment actions.
-        inquiryId: String(
-          inquiry._id,
-        ),
+      // Keep the source Inquiry ID available for future appointment actions.
+      inquiryId: String(inquiry._id),
 
-        // Client information comes directly from the real Inquiry.
-        clientName:
-          inquiry.fullName,
+      // Client information comes directly from the real Inquiry.
+      clientName: inquiry.fullName,
 
-        clientEmail:
-          inquiry.email,
+      clientEmail: inquiry.email,
 
-        clientPhone:
-          inquiry.phone,
+      clientPhone: inquiry.phone,
 
-        // Property information comes from the real Property relation.
-        propertyId: property
-          ? String(property._id)
-          : null,
+      // Property information comes from the real Property relation.
+      propertyId: property ? String(property._id) : null,
 
-        title:
-          property?.title ||
-          "Property Viewing",
+      title: property?.title || "Property Viewing",
 
-        propertyType:
-          property?.propertyType ||
-          null,
+      propertyType: property?.propertyType || null,
 
-        transactionType:
-          property?.transactionType ||
-          null,
+      transactionType: property?.transactionType || null,
 
-        // Preserve the raw scheduled values for the frontend.
-        scheduledDate:
-          inquiry.scheduledDate,
+      // Preserve the raw scheduled values for the frontend.
+      scheduledDate: inquiry.scheduledDate,
 
-        scheduledTime:
-          inquiry.scheduledTime,
+      scheduledTime: inquiry.scheduledTime,
 
-        // Human-readable values used directly by the existing table.
-        date:
-          inquiry.scheduledDate
-            ? new Date(
-                inquiry.scheduledDate,
-              ).toLocaleDateString(
-                "en-NG",
-                {
-                  dateStyle:
-                    "medium",
-                },
-              )
-            : "Date unavailable",
+      // Human-readable values used directly by the existing table.
+      date: inquiry.scheduledDate
+        ? new Date(inquiry.scheduledDate).toLocaleDateString("en-NG", {
+            dateStyle: "medium",
+          })
+        : "Date unavailable",
 
-        time:
-          inquiry.scheduledTime ||
-          "Time unavailable",
+      time: inquiry.scheduledTime || "Time unavailable",
 
-        // Build the location from the real Property fields.
-        location:
-          [
-            property?.area,
-            property?.city,
-            property?.state,
-          ]
-            .filter(Boolean)
-            .join(", ") ||
-          "Location unavailable",
+      // Build the location from the real Property fields.
+      location:
+        [property?.area, property?.city, property?.state]
+          .filter(Boolean)
+          .join(", ") || "Location unavailable",
 
-        // Preserve the Lead pipeline status.
-        status:
-          inquiry.status,
+      // Preserve the Lead pipeline status.
+      status: inquiry.status,
 
-        // Preserve the actual appointment lifecycle status.
-        appointmentStatus:
-          inquiry.appointmentStatus ||
-          "Scheduled",
+      // Preserve the actual appointment lifecycle status.
+      appointmentStatus: inquiry.appointmentStatus || "Scheduled",
 
-        // Priority is not currently stored by the backend.
-        priority:
-          null,
+      // Priority is not currently stored by the backend.
+      priority: null,
 
-        source:
-          inquiry.source,
+      source: inquiry.source,
 
-        message:
-          inquiry.message,
+      message: inquiry.message,
 
-        // Return real Agent notes for the appointment modal.
-        notes:
-          inquiry.notes || [],
+      // Return real Agent notes for the appointment modal.
+      notes: inquiry.notes || [],
 
-        // Return real Lead activity history for the appointment timeline.
-        activities:
-          inquiry.activities || [],
+      // Return real Lead activity history for the appointment timeline.
+      activities: inquiry.activities || [],
 
-        createdAt:
-          inquiry.createdAt,
+      createdAt: inquiry.createdAt,
 
-        updatedAt:
-          inquiry.updatedAt,
-      };
-    },
-  );
+      updatedAt: inquiry.updatedAt,
+    };
+  });
 };
 
 // Update the appointment status for an appointment owned by the authenticated Agent.
@@ -1206,51 +952,25 @@ const updateAgentAppointmentStatus = async (
   appointmentStatus,
 ) => {
   // Ensure authenticated user information is available.
-  if (
-    !authenticatedUser?._id ||
-    !authenticatedUser?.role
-  ) {
-    throw new AppError(
-      "Authenticated user information is required",
-      401,
-    );
+  if (!authenticatedUser?._id || !authenticatedUser?.role) {
+    throw new AppError("Authenticated user information is required", 401);
   }
 
   // Keep this operation restricted to Agents.
   if (authenticatedUser.role !== "Agent") {
-    throw new AppError(
-      "Only an Agent can update appointment status",
-      403,
-    );
+    throw new AppError("Only an Agent can update appointment status", 403);
   }
 
   // Require a valid Inquiry ID.
-  if (
-    !inquiryId ||
-    !mongoose.isValidObjectId(inquiryId)
-  ) {
-    throw new AppError(
-      "A valid inquiry ID is required",
-      400,
-    );
+  if (!inquiryId || !mongoose.isValidObjectId(inquiryId)) {
+    throw new AppError("A valid inquiry ID is required", 400);
   }
 
   // Validate the requested appointment status.
-  const allowedStatuses = [
-    "Scheduled",
-    "Completed",
-    "Cancelled",
-  ];
+  const allowedStatuses = ["Scheduled", "Completed", "Cancelled"];
 
-  if (
-    !allowedStatuses.includes(
-      appointmentStatus,
-    )
-  ) {
-    throw new AppError(
-      "Invalid appointment status",
-      400,
-    );
+  if (!allowedStatuses.includes(appointmentStatus)) {
+    throw new AppError("Invalid appointment status", 400);
   }
 
   // Find the Agent profile connected to the logged-in User.
@@ -1267,10 +987,7 @@ const updateAgentAppointmentStatus = async (
 
   // Prevent inactive Agents from modifying appointments.
   if (agent.status !== "Active") {
-    throw new AppError(
-      "The agent account is inactive",
-      403,
-    );
+    throw new AppError("The agent account is inactive", 403);
   }
 
   // Only update an Inquiry that belongs to this Agent
@@ -1287,63 +1004,48 @@ const updateAgentAppointmentStatus = async (
   });
 
   if (!inquiry) {
-    throw new AppError(
-      "Appointment not found",
-      404,
-    );
+    throw new AppError("Appointment not found", 404);
   }
 
-  const previousAppointmentStatus =
-    inquiry.appointmentStatus ||
-    "Scheduled";
+  const previousAppointmentStatus = inquiry.appointmentStatus || "Scheduled";
 
   const now = new Date();
 
   // Update only the appointment state.
-  inquiry.appointmentStatus =
-    appointmentStatus;
+  inquiry.appointmentStatus = appointmentStatus;
 
   // Keep the existing activity history available.
-  inquiry.activities =
-    inquiry.activities || [];
+  inquiry.activities = inquiry.activities || [];
 
   // Record the appointment action in the activity history.
   inquiry.activities.push({
     action:
-      appointmentStatus ===
-      "Completed"
+      appointmentStatus === "Completed"
         ? "Viewing Completed"
-        : appointmentStatus ===
-          "Cancelled"
-        ? "Viewing Cancelled"
-        : "Viewing Scheduled",
+        : appointmentStatus === "Cancelled"
+          ? "Viewing Cancelled"
+          : "Viewing Scheduled",
 
     description:
-      appointmentStatus ===
-      "Completed"
+      appointmentStatus === "Completed"
         ? "Agent marked the scheduled viewing as completed."
-        : appointmentStatus ===
-          "Cancelled"
-        ? "Agent cancelled the scheduled viewing."
-        : `Appointment status changed from ${previousAppointmentStatus} to Scheduled.`,
+        : appointmentStatus === "Cancelled"
+          ? "Agent cancelled the scheduled viewing."
+          : `Appointment status changed from ${previousAppointmentStatus} to Scheduled.`,
 
     // performedBy is an ObjectId in the Inquiry schema.
-    performedBy:
-      authenticatedUser._id,
+    performedBy: authenticatedUser._id,
 
     createdAt: now,
   });
 
   // Keep the Lead activity timestamp current.
-  inquiry.lastActivityAt =
-    now;
+  inquiry.lastActivityAt = now;
 
   await inquiry.save();
 
   // Return the updated Inquiry with its real related records.
-  return Inquiry.findById(
-    inquiry._id,
-  )
+  return Inquiry.findById(inquiry._id)
     .populate({
       path: "property",
       select:

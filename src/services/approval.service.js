@@ -163,17 +163,12 @@ const reviewPropertyApproval = async (
     );
   }
 
-  // Only Admin and Super Admin can review Property approval requests.
-  if (!PROPERTY_REVIEWER_ROLES.includes(authenticatedUser.role)) {
-    throw new AppError(
-      "You do not have permission to review property approvals",
-      403,
-    );
-  }
-
   // Ensure the requested approval decision is supported.
   if (!["Approved", "Rejected"].includes(decision)) {
-    throw new AppError("Approval decision must be Approved or Rejected", 400);
+    throw new AppError(
+      "Approval decision must be Approved or Rejected",
+      400,
+    );
   }
 
   // Retrieve the Property being reviewed.
@@ -182,6 +177,37 @@ const reviewPropertyApproval = async (
   // Stop if the Property cannot be found.
   if (!property) {
     throw new AppError("Property not found", 404);
+  }
+
+  /*
+   * Admin-created Properties require Super Admin review.
+   *
+   * Admin-created listings must never be approved or
+   * rejected by an Admin.
+   */
+  if (property.createdByRole === "Admin") {
+    if (authenticatedUser.role !== "Super Admin") {
+      throw new AppError(
+        "Only a Super Admin can review an Admin-created Property",
+        403,
+      );
+    }
+  }
+
+  /*
+   * Agent and other supported review workflows remain
+   * available to Admin and Super Admin.
+   *
+   * Super Admin-created Properties normally never reach
+   * this function because they are published immediately.
+   */
+  else {
+    if (!["Admin", "Super Admin"].includes(authenticatedUser.role)) {
+      throw new AppError(
+        "You do not have permission to review property approvals",
+        403,
+      );
+    }
   }
 
   // Retrieve the pending Approval record associated with the Property.
@@ -199,7 +225,10 @@ const reviewPropertyApproval = async (
   }
 
   // Prevent the same User who submitted the Property from approving their own submission.
-  if (approval.submittedBy.toString() === authenticatedUser._id.toString()) {
+  if (
+    String(approval.submittedBy) ===
+    String(authenticatedUser._id)
+  ) {
     throw new AppError(
       "A Property cannot be approved by the same User who submitted it",
       403,
@@ -221,23 +250,25 @@ const reviewPropertyApproval = async (
   // Save the approval decision in MongoDB.
   await approval.save();
 
-  // Move the Property to the appropriate lifecycle state
-  // and keep the verification state aligned with the review decision.
+  /*
+   * Move the Property to the appropriate lifecycle state
+   * and keep the verification state aligned with the review decision.
+   */
   if (decision === "Approved") {
     property.status = "Approved";
 
-    // Approval confirms that the Admin/Super Admin
-    // reviewed the submitted Property documents.
+    // Approval confirms that the submitted
+    // Property documents were reviewed.
     property.verificationLevel = "Documents Verified";
   } else {
     property.status = "Draft";
 
-    // A rejected Property returns to the unverified state.
+    // A rejected Property returns to the
+    // unverified state.
     property.verificationLevel = "Unverified";
   }
 
-  // Save the updated Property lifecycle state
-  // and verification level together.
+  // Save the updated Property lifecycle state.
   await property.save();
 
   // Return both updated records to the controller.
@@ -247,7 +278,7 @@ const reviewPropertyApproval = async (
   };
 };
 
-// Publish an approved Property to the public Luxora marketplace.
+// Publish a Property to the public Luxora marketplace.
 const publishProperty = async (propertyId, authenticatedUser) => {
   // Ensure that authenticated user information is available.
   if (!authenticatedUser?._id || !authenticatedUser?.role) {
@@ -255,11 +286,6 @@ const publishProperty = async (propertyId, authenticatedUser) => {
       "Authenticated user information is required to publish a property",
       401,
     );
-  }
-
-  // Only Admin and Super Admin can publish approved Properties.
-  if (!PROPERTY_REVIEWER_ROLES.includes(authenticatedUser.role)) {
-    throw new AppError("You do not have permission to publish properties", 403);
   }
 
   // Retrieve the Property that is being published.
@@ -272,21 +298,97 @@ const publishProperty = async (propertyId, authenticatedUser) => {
 
   // Prevent an already published Property from being published again.
   if (property.status === "Published") {
-    throw new AppError("Property is already published", 409);
+    throw new AppError(
+      "Property is already published",
+      409,
+    );
   }
 
-  // Only approved Properties can enter the public marketplace.
-  if (property.status !== "Approved") {
-    throw new AppError("Only approved properties can be published", 409);
+  /*
+   * Admin-created Properties can only be
+   * published by a Super Admin.
+   */
+  if (property.createdByRole === "Admin") {
+    if (authenticatedUser.role !== "Super Admin") {
+      throw new AppError(
+        "Only a Super Admin can publish an Admin-created Property",
+        403,
+      );
+    }
+
+    // Admin-created Properties must complete
+    // the approval workflow before publication.
+    if (property.status !== "Approved") {
+      throw new AppError(
+        "Only approved properties can be published",
+        409,
+      );
+    }
+  }
+
+  /*
+   * Super Admin-created Properties normally become
+   * Published immediately during creation.
+   *
+   * This branch also repairs legacy Draft Super Admin
+   * properties created before that workflow was introduced.
+   */
+  else if (property.createdByRole === "Super Admin") {
+    if (authenticatedUser.role !== "Super Admin") {
+      throw new AppError(
+        "Only a Super Admin can publish a Super Admin-created Property",
+        403,
+      );
+    }
+
+    const isLegacySuperAdminProperty =
+      property.status === "Draft" &&
+      String(property.createdBy) ===
+        String(authenticatedUser._id);
+
+    // A legacy Draft listing may be published directly
+    // only by the Super Admin who created it.
+    if (
+      !isLegacySuperAdminProperty &&
+      property.status !== "Approved"
+    ) {
+      throw new AppError(
+        "Only approved properties can be published",
+        409,
+      );
+    }
+  }
+
+  /*
+   * Other approved Properties follow the
+   * existing Admin / Super Admin workflow.
+   */
+  else {
+    if (!["Admin", "Super Admin"].includes(authenticatedUser.role)) {
+      throw new AppError(
+        "You do not have permission to publish properties",
+        403,
+      );
+    }
+
+    if (property.status !== "Approved") {
+      throw new AppError(
+        "Only approved properties can be published",
+        409,
+      );
+    }
   }
 
   // Move the Property into the public marketplace lifecycle state.
   property.status = "Published";
 
+  // Published Properties become available.
+  property.availabilityStatus = "Available";
+
   // Save the publication state in MongoDB.
   await property.save();
 
-  // Return the newly published Property to the controller.
+  // Return the newly published Property.
   return property;
 };
 

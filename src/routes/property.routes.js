@@ -5,27 +5,32 @@ const router = require("express").Router();
 const propertyController = require("../controllers/property.controller");
 
 // Import authentication and role-restriction middleware for protected Property routes.
-const {
-  protect,
-  restrictTo,
-} = require("../middleware/auth.middleware");
+const { protect, restrictTo } = require("../middleware/auth.middleware");
 
 // Import the application's canonical role constants.
 const { ROLES } = require("../config/constants");
 
 // Allow authenticated users to create a Property.
 // The controller and service layers perform the final authorization checks.
-router.post(
-  "/properties",
-  protect,
-  propertyController.createProperty,
-);
+router.post("/properties", protect, propertyController.createProperty);
 
 // Retrieve all Properties belonging to the authenticated Owner.
-router.get(
-  "/owner/properties",
+router.get("/owner/properties", protect, propertyController.getOwnerProperties);
+
+// Allow an authenticated Agency to archive a Property belonging to that Agency.
+router.patch(
+  "/properties/:propertyId/archive",
   protect,
-  propertyController.getOwnerProperties,
+  restrictTo(ROLES.AGENCY),
+  propertyController.archiveAgencyProperty,
+);
+
+// Allow an authenticated Agency to restore an archived Property belonging to that Agency.
+router.patch(
+  "/properties/:propertyId/unarchive",
+  protect,
+  restrictTo(ROLES.AGENCY),
+  propertyController.unarchiveAgencyProperty,
 );
 
 // Allow the authenticated Owner to withdraw their own active Property request.
@@ -85,12 +90,7 @@ router.patch(
 );
 
 // No authentication is required because published Properties are public.
-router.get(
-  "/properties",
-  propertyController.getProperties,
-);
-
-
+router.get("/properties", propertyController.getProperties);
 
 // Allow Admin and Super Admin users to assign a Property to an Agency.
 // The service layer performs the final role and business-rule checks.
@@ -108,7 +108,6 @@ router.patch(
   propertyController.declinePropertyForAgency,
 );
 
-
 // Allow only Admin and Super Admin users to assign the operational manager.
 // The Property service repeats the authorization and validates the target User.
 router.patch(
@@ -118,11 +117,37 @@ router.patch(
   propertyController.assignPropertyToManager,
 );
 
-// Allow an authenticated Agency to update a Property belonging to that Agency.
+// Allow authenticated Agents and Agencies to update Properties
+// through their respective ownership/workflow rules.
 router.patch(
   "/properties/:propertyId",
   protect,
-  propertyController.updateAgencyProperty,
+  restrictTo(ROLES.AGENCY, ROLES.AGENT),
+  propertyController.updateProperty,
+);
+
+// Allow Admin and Super Admin users to update Property content
+// through the administrative Property Management workflow.
+router.patch(
+  "/admin/properties/:propertyId",
+  protect,
+  restrictTo(
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ),
+  propertyController.updateAdministrativeProperty,
+);
+
+// Allow Admin and Super Admin users to permanently delete
+// Properties that do not have transaction history.
+router.delete(
+  "/admin/properties/:propertyId",
+  protect,
+  restrictTo(
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+  ),
+  propertyController.deleteAdministrativeProperty,
 );
 
 // Allow Agency users to assign or reassign a Property to an Agent.
@@ -133,11 +158,18 @@ router.patch(
   propertyController.assignPropertyToAgent,
 );
 
-// Record a public Property detail-page view.
-router.post(
-  "/properties/:id/view",
-  propertyController.recordPropertyView,
+// Retrieve Properties created by the authenticated Admin or Super Admin.
+// This keeps Property Review creator-scoped while the existing /admin/properties
+// endpoint remains the platform-wide management collection.
+router.get(
+  "/admin/my-properties",
+  protect,
+  restrictTo(ROLES.ADMIN, ROLES.SUPER_ADMIN),
+  propertyController.getAdministrativeProperties,
 );
+
+// Record a public Property detail-page view.
+router.post("/properties/:id/view", propertyController.recordPropertyView);
 
 // Allow the authenticated Owner to attach uploaded documents to their own Property.
 router.patch(
@@ -148,10 +180,7 @@ router.patch(
 );
 
 // Retrieve one published Property for the public Property Details page.
-router.get(
-  "/properties/:id",
-  propertyController.getPropertyById,
-);
+router.get("/properties/:id", propertyController.getPropertyById);
 
 // Export the Property router so Express can mount it.
 module.exports = router;

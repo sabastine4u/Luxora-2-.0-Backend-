@@ -6,6 +6,7 @@ const {
   getMyDeals,
   getDealById,
   completeAgreement,
+  cancelDeal,
   verifyPayment,
   completeDeal,
 } = require("../controllers/deal.controller");
@@ -54,6 +55,19 @@ router.patch(
     ROLES.ADMIN,
   ),
   completeAgreement,
+);
+
+// Cancel an active Deal before payment verification/finalization.
+router.patch(
+  "/:dealId/cancel",
+  protect,
+  restrictTo(
+    ROLES.BUYER,
+    ROLES.OWNER,
+    ROLES.AGENT,
+    ROLES.ADMIN,
+  ),
+  cancelDeal,
 );
 
 // Verify payment for an Agreement-completed Deal.

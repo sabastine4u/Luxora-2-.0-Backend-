@@ -73,6 +73,33 @@ const completeAgreement = async (
   }
 };
 
+// Cancel an active Deal before payment verification/finalization.
+const cancelDeal = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const deal =
+      await dealService.cancelDeal(
+        req.user,
+        req.params.dealId,
+        req.body?.reason,
+      );
+
+    return res.status(200).json({
+      status: "success",
+      message:
+        "Deal cancelled successfully.",
+      data: {
+        deal,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 // Verify payment for an Agreement-completed Deal.
 const verifyPayment = async (
   req,
@@ -130,6 +157,7 @@ module.exports = {
   getMyDeals,
   getDealById,
   completeAgreement,
+  cancelDeal,
   verifyPayment,
   completeDeal,
 };

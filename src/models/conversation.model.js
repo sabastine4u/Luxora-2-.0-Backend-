@@ -32,6 +32,11 @@ const conversationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    directKey: {
+  type: String,
+  trim: true,
+  default: null,
+},
     participants: {
       type: [
         {
@@ -132,6 +137,16 @@ conversationSchema.pre("validate", function enforcePropertyInquiryContext() {
 
 // Supports participant inbox retrieval ordered by recent activity.
 conversationSchema.index({ participants: 1, lastMessageAt: -1 });
+
+conversationSchema.index(
+  { directKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      directKey: { $type: "string" },
+    },
+  },
+);
 
 // Enforce one active inquiry thread while allowing an explicitly closed
 // conversation to remain as historical data.
