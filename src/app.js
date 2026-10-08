@@ -62,9 +62,13 @@ const intelligenceRoutes = require("./routes/intelligence.routes");
 const propertyManagementRoutes = require("./routes/property-management.routes");
 
 // Allow the frontend (Vite dev server) to talk to this backend
+const frontendOrigin =
+  process.env.FRONTEND_URL ||
+  "http://localhost:5173";
+
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: frontendOrigin,
     credentials: true,
   }),
 );

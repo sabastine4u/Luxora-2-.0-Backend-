@@ -3,8 +3,10 @@ const jwt = require("jsonwebtoken");
 const AppError = require("../utils/AppError");
 const api = require("../utils/api-response");
 const { ROLES } = require("../config/constants");
-// Import path utilities for safely handling uploaded profile-picture files.
-const path = require("path");
+const {
+  cloudinary,
+  isCloudinaryConfigured,
+} = require("../config/cloudinary");
 
 // Import filesystem access so replaced profile pictures can be removed.
 const fs = require("fs");
@@ -336,48 +338,59 @@ exports.updateProfile = async (req, res, next) => {
 };
 
 // Handles uploading and saving the authenticated user's profile picture.
-exports.updateProfilePhoto = async (req, res, next) => {
+// Handles uploading and saving the authenticated user's profile picture.
+exports.updateProfilePhoto = async (
+  req,
+  res,
+  next,
+) => {
   try {
-    // Reject the request when no profile picture was provided.
     if (!req.file) {
       return next(
-        new AppError("A profile picture is required", 400),
+        new AppError(
+          "A profile picture is required",
+          400,
+        ),
       );
     }
 
-    // Build the public URL served by the Express uploads route.
-    const avatarUrl = `${req.protocol}://${req.get("host")}/uploads/users/${req.file.filename}`;
+    if (!isCloudinaryConfigured) {
+      return next(
+        new AppError(
+          "Cloudinary is not configured. Add the Cloudinary environment variables.",
+          500,
+        ),
+      );
+    }
 
-    // Keep the previous avatar so its local file can be removed safely.
-    const previousAvatar = req.user.avatar;
+    // Upload the temporary Multer file to Cloudinary.
+    const uploadResult =
+      await cloudinary.uploader.upload(
+        req.file.path,
+        {
+          folder:
+            "luxora/users/avatars",
+          resource_type: "image",
+          use_filename: false,
+          unique_filename: true,
+        },
+      );
 
-    // Save the new avatar URL on the authenticated User document.
-    req.user.avatar = avatarUrl;
+    // Store the permanent Cloudinary URL in MongoDB.
+    req.user.avatar =
+      uploadResult.secure_url;
 
-    // Persist the profile-picture change to MongoDB.
     await req.user.save();
 
-    // Remove the previous local avatar when it belongs to our uploads folder.
-    if (
-      previousAvatar &&
-      previousAvatar.includes("/uploads/users/")
-    ) {
-      const previousFilename = path.basename(previousAvatar);
-
-      const previousFilePath = path.join(
-        __dirname,
-        "..",
-        "..",
-        "uploads",
-        "users",
-        previousFilename,
+    // Remove the temporary local Multer file.
+    try {
+      await fs.unlink(
+        req.file.path,
       );
-
-      // Ignore cleanup errors so a successful profile update is not rolled back.
-      fs.unlink(previousFilePath, () => {});
+    } catch {
+      // Ignore cleanup failures.
     }
 
-   // Return the complete safe account information after the photo update.
     const userResponse = {
       id: req.user._id,
       fullName: req.user.fullName,
@@ -385,17 +398,20 @@ exports.updateProfilePhoto = async (req, res, next) => {
       role: req.user.role,
       avatar: req.user.avatar,
       phone: req.user.phone,
-      department: req.user.department,
-      isVerified: req.user.isVerified,
-      isActive: req.user.isActive,
-      createdAt: req.user.createdAt,
-      updatedAt: req.user.updatedAt,
-
-      // Keep all persisted dashboard settings in the current session.
-      settings: req.user.settings || {},
+      department:
+        req.user.department,
+      isVerified:
+        req.user.isVerified,
+      isActive:
+        req.user.isActive,
+      createdAt:
+        req.user.createdAt,
+      updatedAt:
+        req.user.updatedAt,
+      settings:
+        req.user.settings || {},
     };
 
-    // Return the updated profile using the standard API response format.
     return api.success(
       res,
       {
@@ -404,7 +420,6 @@ exports.updateProfilePhoto = async (req, res, next) => {
       "Profile picture updated successfully",
     );
   } catch (error) {
-    // Pass unexpected upload errors to the global error handler.
     next(error);
   }
 };

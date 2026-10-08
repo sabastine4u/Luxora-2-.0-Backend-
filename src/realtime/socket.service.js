@@ -2,7 +2,9 @@ const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
 
-const FRONTEND_ORIGIN = "http://localhost:5173";
+const FRONTEND_ORIGIN =
+  process.env.FRONTEND_URL ||
+  "http://localhost:5173";
 let io;
 
 const getUserRoom = (userId) => `user:${String(userId)}`;

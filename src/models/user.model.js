@@ -256,6 +256,20 @@ const userSchema = new mongoose.Schema(
           type: Boolean,
           default: true,
         },
+        operationalAlerts: {
+          type: Boolean,
+          default: true,
+        },
+
+        approvalRequests: {
+          type: Boolean,
+          default: true,
+        },
+
+        performanceUpdates: {
+          type: Boolean,
+          default: true,
+        },
       },
 
       // Shared regional display preferences.
