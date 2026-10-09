@@ -1,6 +1,7 @@
 // Import Node's path module to safely build file extensions and destinations.
 const path = require('path');
 
+const fs = require('fs');
 // Import Multer, the library that handles multipart/form-data file uploads.
 const multer = require('multer');
 
@@ -38,8 +39,19 @@ const buildDiskStorage = (subfolder) =>
   multer.diskStorage({
     // Choose the destination folder on disk for this upload.
     destination: (req, file, cb) => {
-      cb(null, path.join(__dirname, '..', '..', 'uploads', subfolder));
-    },
+  const destination = path.join(
+    __dirname,
+    '..',
+    '..',
+    'uploads',
+    subfolder
+  );
+
+  fs.mkdir(destination, { recursive: true }, (error) => {
+    if (error) return cb(error);
+    cb(null, destination);
+  });
+},
 
     // Build a unique filename so two people uploading "photo.jpg" at the
     // same time can never overwrite each other's file.
