@@ -1,21 +1,30 @@
+
 const router = require("express").Router();
+
 const authController = require("../controllers/auth.controller");
-const { protect, restrictTo } = require("../middleware/auth.middleware");
-const { ROLES } = require("../config/constants");
+const { protect } = require("../middleware/auth.middleware");
+const {
+  uploadUserAvatar,
+} = require("../middleware/upload.middleware");
 
-// Import the middleware responsible for authenticated profile-picture uploads.
-const { uploadUserAvatar } = require("../middleware/upload.middleware");
-
-
+// Public registration and authentication.
 router.post("/register", authController.register);
+router.post("/verify-email", authController.verifyEmail);
+router.post(
+  "/resend-verification",
+  authController.resendVerification,
+);
 router.post("/login", authController.login);
 
+// Authenticated account routes.
 router.get("/me", protect, authController.getMe);
 
-// Allows the authenticated user to update their own profile.
-router.patch("/profile", protect, authController.updateProfile);
+router.patch(
+  "/profile",
+  protect,
+  authController.updateProfile,
+);
 
-// Allow an authenticated user to replace their profile picture.
 router.patch(
   "/profile/photo",
   protect,
@@ -23,11 +32,16 @@ router.patch(
   authController.updateProfilePhoto,
 );
 
+router.post(
+  "/logout",
+  protect,
+  authController.logout,
+);
 
-router.post("/logout", protect, authController.logout);
-
-router.patch("/change-password", protect, authController.changePassword);
-
+router.patch(
+  "/change-password",
+  protect,
+  authController.changePassword,
+);
 
 module.exports = router;
-

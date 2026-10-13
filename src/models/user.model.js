@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const { ROLES } = require("../config/constants");
@@ -9,6 +10,7 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+
     email: {
       type: String,
       required: [true, "Email is required"],
@@ -17,63 +19,134 @@ const userSchema = new mongoose.Schema(
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Invalid email format"],
     },
+
     password: {
       type: String,
       required: [true, "Password is required"],
       minlength: 8,
       select: false,
     },
+
     role: {
       type: String,
       enum: Object.values(ROLES),
       default: ROLES.BUYER,
     },
+
     // Store the public URL of the user's current profile picture.
     avatar: {
       type: String,
       default: null,
       trim: true,
     },
+
     department: {
       type: String,
       default: null,
     },
+
+    // Existing verification fields.
+    // These remain unchanged because other Luxora roles use them.
     isVerified: {
       type: Boolean,
       default: false,
     },
+
     verificationToken: {
       type: String,
       default: null,
     },
+
     verifiedAt: {
       type: Date,
       default: null,
     },
+
+    // Email ownership verification is tracked separately
+    // from the existing account/credential verification.
+    // Existing and administrator-created accounts remain compatible.
+    emailVerified: {
+      type: Boolean,
+      default: true,
+    },
+
+    // Store only a hash of the email verification code.
+    emailVerificationCodeHash: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
+    // Verification codes expire after the configured period.
+    emailVerificationExpires: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+
+    // Prevent repeated verification-email requests in a short period.
+    emailVerificationSentAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
+
+    // Track failed verification attempts.
+    emailVerificationAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+
+    // Track the last successful sign-in for security notifications.
+    lastLoginAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Browser/device information from the User-Agent header.
+    lastLoginDevice: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
+    // Track the previous IP address for sign-in alerts.
+    lastLoginIp: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
+    // Existing password-reset fields.
     resetPasswordToken: {
       type: String,
       default: null,
     },
+
     resetPasswordExpires: {
       type: Date,
       default: null,
     },
+
     isActive: {
       type: Boolean,
       default: true,
     },
+
     passwordChangedAt: {
       type: Date,
       default: null,
     },
-    // Store the user's optional phone number used by dashboard profile settings.
+
+    // Store the user's optional phone number.
     phone: {
       type: String,
       trim: true,
       default: null,
     },
 
-    // Store dashboard preferences belonging to this authenticated account.
+    // Existing dashboard preferences.
     settings: {
       // Buyer-specific property search preferences.
       buyer: {
@@ -205,7 +278,7 @@ const userSchema = new mongoose.Schema(
         },
       },
 
-      // Shared notification preferences used by Buyer and Owner dashboards.
+      // Shared notification preferences.
       notifications: {
         email: {
           type: Boolean,
@@ -256,6 +329,7 @@ const userSchema = new mongoose.Schema(
           type: Boolean,
           default: true,
         },
+
         operationalAlerts: {
           type: Boolean,
           default: true,
@@ -302,12 +376,14 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// Continue hashing passwords whenever a password changes.
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
   this.password = await bcrypt.hash(this.password, 12);
 });
 
+// Compare a submitted password with its stored hash.
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
